@@ -68,6 +68,8 @@ func UploadFileToHosts(filePath string, sessions map[string]*HostSession) {
 		wg.Add(1)
 		go func(hs *HostSession) {
 			defer wg.Done()
+
+			// todo aware of current dir
 			remoteFileName := filepath.Base(filePath)
 
 			scpArgs := []string{hs.Host + ":~/" + remoteFileName}

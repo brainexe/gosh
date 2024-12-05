@@ -18,57 +18,41 @@ type HostOutput struct {
 	ColorCode string
 }
 
+// ReadHostOutput reads the output from a host session and sends it to the output channel
 func ReadHostOutput(hs *HostSession, outputChan chan<- HostOutput) {
-	defer hs.Close()
+	defer func() {
+		if err := hs.Close(); err != nil {
+			logrus.Errorf("Error closing host session for %s: %v", hs.Host, err)
+		}
+	}()
+
 	reader := bufio.NewReader(io.MultiReader(hs.Stdout, hs.Stderr))
-	var buffer string
 
 	for {
-		data, err := reader.ReadString('\n')
+		line, err := reader.ReadString('\n')
 		if err != nil && err != io.EOF {
 			logrus.Errorf("Error reading from host %s: %v", hs.Host, err)
 			break
 		}
 
-		if data != "" {
+		if line != "" {
 			// Remove ANSI escape sequences
-			data = stripAnsiEscapeSequences(data)
+			// todo needed, don't we want color here?
+			cleanLine := stripAnsiEscapeSequences(line)
+			cleanLine = strings.TrimSpace(cleanLine)
 
-			// Ignore "Last login" lines
-			if strings.HasPrefix(data, "Last login") {
-				// todo better ssh/shell flag to ignore?
+			// Debug: Output the received line
+			logrus.Debugf("%s received: %s", hs.Host, cleanLine)
+
+			// Ignore empty lines
+			if cleanLine == "" {
 				continue
 			}
 
-			buffer += data
-
-			// Check if we have received the prompt marker
-			if strings.Contains(buffer, hs.PromptMarker) {
-				// Split the buffer at the prompt marker
-				parts := strings.Split(buffer, hs.PromptMarker)
-				if len(parts) > 0 {
-					commandOutput := parts[0]
-					// Remove any trailing newlines
-					commandOutput = strings.TrimRight(commandOutput, "\r\n")
-
-					// Split command output into lines
-					lines := strings.Split(commandOutput, "\n")
-
-					// Output each line prefixed with hostname and color
-					for _, line := range lines {
-						line = strings.TrimSpace(line)
-						if line == "" {
-							continue
-						}
-						outputChan <- HostOutput{
-							Host:      hs.Host,
-							Data:      line,
-							ColorCode: hs.ColorCode,
-						}
-					}
-				}
-				// Reset buffer
-				buffer = ""
+			outputChan <- HostOutput{
+				Host:      hs.Host,
+				Data:      cleanLine,
+				ColorCode: hs.ColorCode,
 			}
 		}
 
@@ -78,7 +62,7 @@ func ReadHostOutput(hs *HostSession, outputChan chan<- HostOutput) {
 	}
 }
 
-// ReadUserInput reads user input and sends it to the input channel
+// ReadUserInput reads user input from stdin and sends it to the input channel
 func ReadUserInput(inputChan chan<- string, doneChan <-chan struct{}) {
 	scanner := bufio.NewScanner(os.Stdin)
 	for {
@@ -102,6 +86,7 @@ func ReadUserInput(inputChan chan<- string, doneChan <-chan struct{}) {
 	}
 }
 
+// Regular expression to remove ANSI escape sequences
 var ansiEscapeSequence = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]`)
 
 func stripAnsiEscapeSequences(input string) string {

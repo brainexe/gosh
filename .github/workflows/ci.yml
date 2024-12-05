@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        go-version: [latest]
+        os: [ubuntu-latest]
+        platform:
+           - linux/amd64
+           - darwin/amd64
+           - windows/amd64
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: ${{ matrix.go-version }}
+
+      - name: Build
+        run: make build
+
+      - name: Run tests
+        run: make test
+
+    # Optional steps to build and upload artifacts
+    # - name: Build binaries
+    #   run: |
+    #     GOOS=linux GOARCH=amd64 go build -v -o bin/polysh-linux ./cmd
+    #     GOOS=darwin GOARCH=amd64 go build -v -o bin/polysh-macos ./cmd
+    #     GOOS=windows GOARCH=amd64 go build -v -o bin/polysh.exe ./cmd
+
+    # - name: Upload artifacts
+    #   uses: actions/upload-artifact@v3
+    #   with:
+    #     name: polysh-binaries
+    #     path: bin/

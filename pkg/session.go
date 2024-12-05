@@ -2,64 +2,46 @@ package pkg
 
 import (
 	"fmt"
-	"github.com/sirupsen/logrus"
 	"io"
 	"os/exec"
-	"strings"
 	"time"
+
+	"github.com/sirupsen/logrus"
 )
 
 // HostSession represents a session with a remote host using system ssh
 type HostSession struct {
-	Host         string
-	Cmd          *exec.Cmd
-	Stdin        io.WriteCloser
-	Stdout       io.Reader
-	Stderr       io.Reader
-	ColorCode    string
-	PromptMarker string
+	Host      string
+	Cmd       *exec.Cmd
+	Stdin     io.WriteCloser
+	Stdout    io.Reader
+	Stderr    io.Reader
+	ColorCode string
 }
 
 // NewHostSession creates a new HostSession using the system ssh command
-func NewHostSession(host string, userFlag string, idx int, noColor bool, verbose bool, sshCmd string) (*HostSession, error) {
-	var username string
+func NewHostSession(host string, userFlag string, idx int, noColor bool, sshCmd string) (*HostSession, error) {
+	// Construct SSH arguments
+	// Include the '-tt' option to force pseudo-terminal allocation
+	sshArgs := []string{"-tt"}
+	sshArgs = append(sshArgs, "-o", "LogLevel=QUIET")
 
+	// Prepare the remote command
+	// Unset PROMPT_COMMAND, set PS1, and exec bash
+	remoteCommand := `sh -i -c 'PS1=""; ENV=; export PS1 ENV; exec sh -i'`
+
+	// Add user@host and remote command
+	var username string
 	if userFlag != "" {
 		username = userFlag + "@"
 	} else {
 		username = ""
 	}
-
-	// Construct SSH arguments
-	sshArgs := []string{}
-
-	// Include the '-tt' option to force pseudo-terminal allocation
-	sshArgs = append(sshArgs, "-tt")
-
-	// Include verbosity flags if verbose mode is enabled
-	if verbose {
-		sshArgs = append(sshArgs, "-vvv")
-	} else {
-		sshArgs = append(sshArgs, "-o", "LogLevel=QUIET")
-	}
-
-	// Prepare the prompt marker
-	promptMarker := "__POLYSH_PROMPT__"
-
-	// Prepare the remote command
-	remoteCommand := fmt.Sprintf(`env PS1="%s" bash --noprofile --norc -i`, promptMarker)
-
-	// Add user@host and remote command
 	userAtHost := username + host
 	sshArgs = append(sshArgs, userAtHost, remoteCommand)
 
 	// Create the command
-	cmd := exec.Command("ssh", sshArgs...)
-
-	// If verbose, print the SSH command being executed
-	if verbose {
-		logrus.Debugf("SSH command: ssh %s", strings.Join(sshArgs, " "))
-	}
+	cmd := exec.Command(sshCmd, sshArgs...)
 
 	// Create pipes for stdin, stdout, stderr
 	stdin, err := cmd.StdinPipe()
@@ -83,9 +65,7 @@ func NewHostSession(host string, userFlag string, idx int, noColor bool, verbose
 	}
 
 	// Add a log message when the connection is established
-	if verbose {
-		logrus.Infof("Connection established with %s", host)
-	}
+	logrus.Debugf("Connection established with %s", host)
 
 	colorCode := ""
 	if !noColor {
@@ -93,13 +73,12 @@ func NewHostSession(host string, userFlag string, idx int, noColor bool, verbose
 	}
 
 	hs := &HostSession{
-		Host:         host,
-		Cmd:          cmd,
-		Stdin:        stdin,
-		Stdout:       stdout,
-		Stderr:       stderr,
-		ColorCode:    colorCode,
-		PromptMarker: promptMarker,
+		Host:      host,
+		Cmd:       cmd,
+		Stdin:     stdin,
+		Stdout:    stdout,
+		Stderr:    stderr,
+		ColorCode: colorCode,
 	}
 
 	return hs, nil
@@ -114,7 +93,7 @@ func (hs *HostSession) Close() error {
 	}
 
 	// Wait for a short duration to allow the remote shell to exit
-	time.Sleep(1 * time.Second)
+	time.Sleep(100 * time.Millisecond)
 
 	// Check if the process is still running
 	if hs.Cmd.ProcessState == nil || !hs.Cmd.ProcessState.Exited() {
