@@ -1,8 +1,12 @@
 name: CI
 
 on:
+  push:
+    branches:
+      - master
   pull_request:
-    branches: [ master ]
+    branches:
+      - master
 
 jobs:
   build:
@@ -33,15 +37,18 @@ jobs:
       - name: Run tests
         run: make test
 
+      - name: Run GoLand CI linters
+        uses: golangci/golangci-lint-action/v1
+
     # Optional steps to build and upload artifacts
     # - name: Build binaries
     #   run: |
-    #     GOOS=linux GOARCH=amd64 go build -v -o bin/polysh-linux ./cmd
-    #     GOOS=darwin GOARCH=amd64 go build -v -o bin/polysh-macos ./cmd
-    #     GOOS=windows GOARCH=amd64 go build -v -o bin/polysh.exe ./cmd
+    #     GOOS=linux GOARCH=amd64 go build -v -o bin/gosh-linux ./cmd
+    #     GOOS=darwin GOARCH=amd64 go build -v -o bin/gosh-macos ./cmd
+    #     GOOS=windows GOARCH=amd64 go build -v -o bin/gosh.exe ./cmd
 
     # - name: Upload artifacts
     #   uses: actions/upload-artifact@v3
     #   with:
-    #     name: polysh-binaries
+    #     name: gosh-binaries
     #     path: bin/

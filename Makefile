@@ -1,13 +1,13 @@
 
 # Binary name
-BINARY_NAME   = polysh
+BINARY_NAME   = gosh
 
 # Build output directory
 BUILD_DIR     = build
 
 .PHONY: all build test
 
-all: test build
+all: test lint build
 
 build:
 	@echo "Building the application..."
@@ -20,3 +20,6 @@ test:
 test-race:
 	@echo "Running tests..."
 	go test -race -v ./...
+
+lint:
+	 golangci-lint run --fix

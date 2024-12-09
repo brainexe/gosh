@@ -37,13 +37,14 @@ func StartInteractiveSession(hostSessions map[string]*HostSession, outputMutex *
 		select {
 		case input, ok := <-inputChan:
 			if !ok {
-				logrus.Info("Input channel closed, exiting")
+				logrus.Errorf("Input channel closed, exiting")
 				close(doneChan)
 				outputWg.Wait()
 				return nil
 			}
-			if input == ":quit" {
-				logrus.Info("Exiting")
+			// exit -> close all connections and return
+			if input == ":quit" || input == ":q" || input == ":exit" {
+				logrus.Info("Exiting...")
 				close(doneChan)
 				close(inputChan)
 				outputWg.Wait()
@@ -53,6 +54,7 @@ func StartInteractiveSession(hostSessions map[string]*HostSession, outputMutex *
 				HandleControlCommand(input, hostSessions)
 				continue
 			}
+
 			// Send input to all hosts
 			for _, hs := range hostSessions {
 				_, err := hs.Stdin.Write([]byte(input + "\n"))

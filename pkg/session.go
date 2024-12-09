@@ -46,22 +46,22 @@ func NewHostSession(host string, userFlag string, idx int, noColor bool, sshCmd 
 	// Create pipes for stdin, stdout, stderr
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get stdin for host %s: %v", host, err)
+		return nil, fmt.Errorf("failed to get stdin for host %s: %w", host, err)
 	}
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get stdout for host %s: %v", host, err)
+		return nil, fmt.Errorf("failed to get stdout for host %s: %w", host, err)
 	}
 
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get stderr for host %s: %v", host, err)
+		return nil, fmt.Errorf("failed to get stderr for host %s: %w", host, err)
 	}
 
 	// Start the command
 	if err := cmd.Start(); err != nil {
-		return nil, fmt.Errorf("failed to start ssh session for host %s: %v", host, err)
+		return nil, fmt.Errorf("failed to start ssh session for host %s: %w", host, err)
 	}
 
 	// Add a log message when the connection is established
@@ -89,14 +89,14 @@ func (hs *HostSession) Close() error {
 	// Send exit command to the remote shell
 	_, err := hs.Stdin.Write([]byte("exit\n"))
 	if err != nil {
-		logrus.Errorf("Failed to send exit command to host %s: %v", hs.Host, err)
+		logrus.Warnf("Failed to send exit command to host %s: %v", hs.Host, err)
 	}
 
 	// Wait for a short duration to allow the remote shell to exit
 	time.Sleep(100 * time.Millisecond)
 
 	// Check if the process is still running
-	if hs.Cmd.ProcessState == nil || !hs.Cmd.ProcessState.Exited() {
+	if err != nil || hs.Cmd.ProcessState == nil || !hs.Cmd.ProcessState.Exited() {
 		// Kill the process
 		if err := hs.Cmd.Process.Kill(); err != nil {
 			logrus.Errorf("Failed to kill ssh process for host %s: %v", hs.Host, err)
@@ -106,7 +106,7 @@ func (hs *HostSession) Close() error {
 
 	// Wait for the command to finish
 	if err := hs.Cmd.Wait(); err != nil {
-		return fmt.Errorf("failed to wait for ssh session to end for host %s: %v", hs.Host, err)
+		return fmt.Errorf("failed to wait for ssh session to end for host %s: %w", hs.Host, err)
 	}
 
 	return nil

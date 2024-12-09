@@ -2,6 +2,7 @@ package pkg
 
 // GetColorCode returns an ANSI color code based on the index
 func GetColorCode(idx int) string {
+	// todo more colors?
 	// ANSI color codes with bold
 	colors := []string{
 		"\033[1;31m",       // Bold Red

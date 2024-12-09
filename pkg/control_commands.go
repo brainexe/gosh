@@ -77,7 +77,7 @@ func UploadFileToHosts(filePath string, sessions map[string]*HostSession) {
 
 			logrus.Infof("Uploading file to host %s", hs.Host)
 
-			cmd := exec.Command("scp", append(scpArgs, filePath)...)
+			cmd := exec.Command("scp", append(scpArgs, filePath)...) // #nosec G204
 
 			// Start the command
 			output, err := cmd.CombinedOutput()

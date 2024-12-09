@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/innogames/polysh-go/pkg"
+	"github.com/innogames/gosh/pkg"
 	"github.com/sirupsen/logrus"
 )
 
@@ -21,15 +21,16 @@ func main() {
 	hosts := flag.Args()
 
 	if len(hosts) == 0 {
-		fmt.Println("Usage: polysh [OPTIONS]... HOSTS...")
+		fmt.Println("Usage: gosh [OPTIONS]... HOSTS...")
 		flag.PrintDefaults()
 		os.Exit(1)
 	}
 
-	// Set logrus log level
+	// init logger
 	logrus.SetFormatter(&logrus.TextFormatter{
 		FullTimestamp:   true,
 		TimestampFormat: "2006-01-02 15:04:05.000",
+		DisableColors:   *noColor,
 	})
 	if *verbose {
 		logrus.SetLevel(logrus.DebugLevel)
@@ -37,21 +38,19 @@ func main() {
 		logrus.SetLevel(logrus.InfoLevel)
 	}
 
+	var err error
 	if *command != "" {
 		// Execute the command directly on the hosts
-		err := pkg.ExecuteCommandOnHosts(hosts, *command, *userFlag, *noColor, *verbose, *sshCmd)
-		if err != nil {
-			logrus.Error(err)
-			os.Exit(1)
-		}
+		err = pkg.ExecuteCommandOnHosts(hosts, *command, *userFlag, *noColor, *sshCmd)
 	} else {
 		// Enter interactive mode
-		err := pkg.InteractiveMode(hosts, *userFlag, *noColor, *verbose, *sshCmd)
-		if err != nil {
-			logrus.Error(err)
-			os.Exit(1)
-		}
+		err = pkg.InteractiveMode(hosts, *userFlag, *noColor, *sshCmd)
 	}
 
-	os.Exit(0)
+	if err != nil {
+		logrus.Error(err)
+		os.Exit(1)
+	} else {
+		os.Exit(0)
+	}
 }

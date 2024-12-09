@@ -115,7 +115,7 @@ func TestSSHCommandExecution(t *testing.T) {
 	// Create a client config
 	clientConfig := &ssh.ClientConfig{
 		User:            "testuser",
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(), // #nosec 106
 		ClientVersion:   "SSH-2.0-Go-SSH-TestClient",
 	}
 

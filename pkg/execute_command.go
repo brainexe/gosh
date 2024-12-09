@@ -11,7 +11,7 @@ import (
 )
 
 // ExecuteCommandOnHosts executes the given command on all hosts in parallel
-func ExecuteCommandOnHosts(hosts []string, command string, userFlag string, noColor bool, verbose bool, sshCmd string) error {
+func ExecuteCommandOnHosts(hosts []string, command string, userFlag string, noColor bool, sshCmd string) error {
 	var wg sync.WaitGroup
 
 	totalHosts := len(hosts)
@@ -25,13 +25,7 @@ func ExecuteCommandOnHosts(hosts []string, command string, userFlag string, noCo
 
 			// Include the '-tt' option to force pseudo-terminal allocation
 			sshArgs := []string{"-tt"}
-
-			// Include verbosity flags if verbose mode is enabled
-			if verbose {
-				sshArgs = append(sshArgs, "-v")
-			} else {
-				sshArgs = append(sshArgs, "-o", "LogLevel=QUIET")
-			}
+			sshArgs = append(sshArgs, "-o", "LogLevel=QUIET")
 
 			// Add user@host
 			var userAtHost string
@@ -50,9 +44,7 @@ func ExecuteCommandOnHosts(hosts []string, command string, userFlag string, noCo
 			cmd := exec.Command(sshCmd, sshArgs...)
 
 			// If verbose, print the SSH command being executed
-			if verbose {
-				logrus.Debugf("SSH command: %s %s", sshCmd, strings.Join(sshArgs, " "))
-			}
+			logrus.Debugf("SSH command: %s %s", sshCmd, strings.Join(sshArgs, " "))
 
 			// Capture stdout and stderr
 			stdoutPipe, err := cmd.StdoutPipe()
@@ -91,6 +83,7 @@ func ExecuteCommandOnHosts(hosts []string, command string, userFlag string, noCo
 			// Channel to signal when output is done
 			outputDone := make(chan struct{})
 
+			// todo merge scanners
 			// Scan stdout
 			go func() {
 				defer scanWg.Done()
@@ -110,6 +103,7 @@ func ExecuteCommandOnHosts(hosts []string, command string, userFlag string, noCo
 			}()
 
 			// Wait for scanning to finish
+			// todo use only wait for simplicity
 			go func() {
 				scanWg.Wait()
 				close(outputDone)
@@ -122,7 +116,6 @@ func ExecuteCommandOnHosts(hosts []string, command string, userFlag string, noCo
 
 			// Wait for output scanning to finish
 			<-outputDone
-
 		}(host, idx)
 	}
 

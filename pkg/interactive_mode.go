@@ -1,13 +1,15 @@
 package pkg
 
 import (
+	"errors"
 	"fmt"
-	"github.com/sirupsen/logrus"
 	"sync"
+
+	"github.com/sirupsen/logrus"
 )
 
 // InteractiveMode starts an interactive session with all hosts
-func InteractiveMode(hosts []string, userFlag string, noColor bool, verbose bool, sshCmd string) error {
+func InteractiveMode(hosts []string, userFlag string, noColor bool, sshCmd string) error {
 	// Create HostSessions
 	hostSessions := make(map[string]*HostSession)
 	var wg sync.WaitGroup
@@ -63,7 +65,7 @@ func InteractiveMode(hosts []string, userFlag string, noColor bool, verbose bool
 
 	if len(hostSessions) == 0 {
 		logrus.Error("No hosts connected successfully.")
-		return fmt.Errorf("no hosts connected successfully")
+		return errors.New("no hosts connected successfully")
 	}
 
 	// Enter interactive session
