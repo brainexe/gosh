@@ -87,7 +87,6 @@ func UploadFileToHosts(filePath string, sessions map[string]*HostSession) {
 				return
 			}
 
-			reset := "\033[0m"
 			fmt.Printf("%s%s%s: Uploaded file %s\n", hs.ColorCode, hs.Host, reset, remoteFileName)
 		}(hs)
 	}

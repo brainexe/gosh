@@ -15,7 +15,7 @@ func StartInteractiveSession(hostSessions map[string]*HostSession, outputMutex *
 	outputMutex.Unlock()
 
 	// Create per-host output readers
-	outputChan := make(chan HostOutput, 100) // Buffered channel to prevent blocking
+	outputChan := make(chan hostOutput, 100) // Buffered channel to prevent blocking
 	doneChan := make(chan struct{})
 	var outputWg sync.WaitGroup
 
@@ -36,6 +36,7 @@ func StartInteractiveSession(hostSessions map[string]*HostSession, outputMutex *
 	for {
 		select {
 		case input, ok := <-inputChan:
+			// wait for user input
 			if !ok {
 				logrus.Errorf("Input channel closed, exiting")
 				close(doneChan)
@@ -50,6 +51,8 @@ func StartInteractiveSession(hostSessions map[string]*HostSession, outputMutex *
 				outputWg.Wait()
 				return nil
 			}
+
+			// handle special control commands like :upload
 			if len(input) > 0 && input[0] == ':' {
 				HandleControlCommand(input, hostSessions)
 				continue
@@ -63,9 +66,8 @@ func StartInteractiveSession(hostSessions map[string]*HostSession, outputMutex *
 				}
 			}
 		case output := <-outputChan:
-			// Print output
+			// we received output from a host -> print it!
 			outputMutex.Lock()
-			reset := "\033[0m"
 			fmt.Printf("\r%s%s%s: %s\n", output.ColorCode, output.Host, reset, output.Data)
 			// Reprint prompt
 			fmt.Print("> ")

@@ -8,6 +8,8 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+// todo threadsafe fmt.Println
+
 // InteractiveMode starts an interactive session with all hosts
 func InteractiveMode(hosts []string, userFlag string, noColor bool, sshCmd string) error {
 	// Create HostSessions
@@ -20,25 +22,22 @@ func InteractiveMode(hosts []string, userFlag string, noColor bool, sshCmd strin
 	connectedHosts := 0
 
 	// Progress channel to receive connection updates
-	progressChan := make(chan struct{})
+	progressChan := make(chan int, 1)
+	// first signal for progress bar
+	progressChan <- 0
 
 	// Start a goroutine to monitor connection progress
 	go func() {
-		for range progressChan {
+		for connected := range progressChan {
 			outputMutex.Lock()
-			if connectedHosts == totalHosts {
-				fmt.Printf("\rReady (%d) ", totalHosts)
+			if connected == totalHosts {
+				fmt.Printf("\rReady (%d)", totalHosts)
 			} else {
-				fmt.Printf("\rConnecting (%d/%d)> ", connectedHosts, totalHosts)
+				fmt.Printf("\rConnecting (%d/%d)>", connected, totalHosts)
 			}
 			outputMutex.Unlock()
 		}
 	}()
-
-	// Initial connecting message
-	outputMutex.Lock()
-	fmt.Printf("Connecting (0/%d)> ", totalHosts)
-	outputMutex.Unlock()
 
 	// Start a goroutine to connect to each host
 	for i, host := range hosts {
@@ -54,8 +53,8 @@ func InteractiveMode(hosts []string, userFlag string, noColor bool, sshCmd strin
 			mutex.Lock()
 			hostSessions[host] = hs
 			connectedHosts++
+			progressChan <- connectedHosts
 			mutex.Unlock()
-			progressChan <- struct{}{}
 		}(host, i)
 	}
 

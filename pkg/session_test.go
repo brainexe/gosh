@@ -11,7 +11,9 @@ import (
 )
 
 // Start a fake SSH server for testing purposes
-func startFakeSSHServer(t *testing.T, addr string, response string) (net.Listener, error) {
+func startFakeSSHServer(t *testing.T, addr string, response string) net.Listener {
+	t.Helper()
+
 	// Load a private key for the server
 	privateBytes, err := os.ReadFile("test_data/test_server_key")
 	if err != nil {
@@ -59,7 +61,7 @@ func startFakeSSHServer(t *testing.T, addr string, response string) (net.Listene
 		}
 	}()
 
-	return listener, nil
+	return listener
 }
 
 // Handle SSH channels
@@ -103,10 +105,7 @@ func handleChannels(chans <-chan ssh.NewChannel, response string) {
 func TestSSHCommandExecution(t *testing.T) {
 	// Start the fake SSH server
 	addr := "127.0.0.1:2222"
-	listener, err := startFakeSSHServer(t, addr, "5\n")
-	if err != nil {
-		t.Fatalf("Failed to start fake SSH server: %v", err)
-	}
+	listener := startFakeSSHServer(t, addr, "5\n")
 	defer listener.Close()
 
 	// Wait for the server to start

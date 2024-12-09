@@ -11,15 +11,15 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// HostOutput represents the output from a host
-type HostOutput struct {
+// hostOutput represents the output from a host
+type hostOutput struct {
 	Host      string
 	Data      string
 	ColorCode string
 }
 
 // ReadHostOutput reads the output from a host session and sends it to the output channel
-func ReadHostOutput(hs *HostSession, outputChan chan<- HostOutput) {
+func ReadHostOutput(hs *HostSession, outputChan chan<- hostOutput) {
 	defer func() {
 		if err := hs.Close(); err != nil {
 			logrus.Errorf("Error closing host session for %s: %v", hs.Host, err)
@@ -49,7 +49,7 @@ func ReadHostOutput(hs *HostSession, outputChan chan<- HostOutput) {
 				continue
 			}
 
-			outputChan <- HostOutput{
+			outputChan <- hostOutput{
 				Host:      hs.Host,
 				Data:      cleanLine,
 				ColorCode: hs.ColorCode,

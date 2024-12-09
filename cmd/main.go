@@ -18,6 +18,7 @@ func main() {
 	verbose := flag.Bool("verbose", false, "Enable verbose logging")
 	flag.Parse()
 
+	// list of hostnames
 	hosts := flag.Args()
 
 	if len(hosts) == 0 {
@@ -50,7 +51,6 @@ func main() {
 	if err != nil {
 		logrus.Error(err)
 		os.Exit(1)
-	} else {
-		os.Exit(0)
 	}
+	os.Exit(0)
 }

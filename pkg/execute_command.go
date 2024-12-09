@@ -3,6 +3,7 @@ package pkg
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"os/exec"
 	"strings"
 	"sync"
@@ -13,7 +14,6 @@ import (
 // ExecuteCommandOnHosts executes the given command on all hosts in parallel
 func ExecuteCommandOnHosts(hosts []string, command string, userFlag string, noColor bool, sshCmd string) error {
 	var wg sync.WaitGroup
-
 	totalHosts := len(hosts)
 
 	for idx, host := range hosts {
@@ -21,106 +21,67 @@ func ExecuteCommandOnHosts(hosts []string, command string, userFlag string, noCo
 		go func(host string, idx int) {
 			defer wg.Done()
 
-			logrus.Debugf("Executing command on host %s", host)
-
-			// Include the '-tt' option to force pseudo-terminal allocation
-			sshArgs := []string{"-tt"}
-			sshArgs = append(sshArgs, "-o", "LogLevel=QUIET")
-
 			// Add user@host
-			var userAtHost string
+			userAtHost := host
 			if userFlag != "" {
 				userAtHost = fmt.Sprintf("%s@%s", userFlag, host)
-			} else {
-				userAtHost = host
 			}
-			sshArgs = append(sshArgs, userAtHost)
 
 			// Add the command, wrapped with 'bash -c' to ensure proper execution
 			remoteCommand := fmt.Sprintf("bash -c %q", command)
-			sshArgs = append(sshArgs, remoteCommand)
+
+			sshArgs := []string{
+				"-tt",                  // Force pseudo-terminal allocation
+				"-o", "LogLevel=QUIET", // Suppress warnings
+				userAtHost,    // user@host or just host
+				remoteCommand, // actual command
+			}
 
 			// Prepare the SSH command
 			cmd := exec.Command(sshCmd, sshArgs...)
 
-			// If verbose, print the SSH command being executed
+			// Verbose logging
 			logrus.Debugf("SSH command: %s %s", sshCmd, strings.Join(sshArgs, " "))
 
-			// Capture stdout and stderr
-			stdoutPipe, err := cmd.StdoutPipe()
-			if err != nil {
-				logrus.Errorf("Failed to get stdout for host %s: %v", host, err)
-				return
-			}
-
-			stderrPipe, err := cmd.StderrPipe()
-			if err != nil {
-				logrus.Errorf("Failed to get stderr for host %s: %v", host, err)
-				return
-			}
-
-			// Start the command
-			if err := cmd.Start(); err != nil {
-				logrus.Errorf("Failed to start SSH command for host %s: %v", host, err)
-				return
-			}
-
-			// Reset color after hostname
-			reset := "\033[0m"
+			// Prepare color codes
 			colorCode := ""
 			if !noColor {
 				colorCode = GetColorCode(idx)
 			}
 
-			// Create scanners for stdout and stderr
-			stdoutScanner := bufio.NewScanner(stdoutPipe)
-			stderrScanner := bufio.NewScanner(stderrPipe)
+			// Create an io.Pipe to capture combined stdout and stderr
+			r, w := io.Pipe()
+			cmd.Stdout = w
+			cmd.Stderr = w
 
-			// Wait group for scanning stdout and stderr
-			var scanWg sync.WaitGroup
-			scanWg.Add(2)
-
-			// Channel to signal when output is done
-			outputDone := make(chan struct{})
-
-			// todo merge scanners
-			// Scan stdout
-			go func() {
-				defer scanWg.Done()
-				for stdoutScanner.Scan() {
-					line := stdoutScanner.Text()
-					fmt.Printf("%s%s%s: %s\n", colorCode, host, reset, line)
-				}
-			}()
-
-			// Scan stderr
-			go func() {
-				defer scanWg.Done()
-				for stderrScanner.Scan() {
-					line := stderrScanner.Text()
-					fmt.Printf("%s%s%s: %s\n", colorCode, host, reset, line)
-				}
-			}()
-
-			// Wait for scanning to finish
-			// todo use only wait for simplicity
-			go func() {
-				scanWg.Wait()
-				close(outputDone)
-			}()
-
-			// Wait for command to finish
-			if err := cmd.Wait(); err != nil {
-				fmt.Printf("%s%s%s: %s\n", colorCode, host, reset, err)
+			// Start the command
+			if err := cmd.Start(); err != nil {
+				logrus.Errorf("Failed to start SSH command for host %s: %v", host, err)
+				w.Close()
+				return
 			}
 
-			// Wait for output scanning to finish
-			<-outputDone
+			// Scan and print the output, line by line
+			scanner := bufio.NewScanner(r)
+			go func() {
+				for scanner.Scan() {
+					line := scanner.Text()
+					fmt.Printf("%s%s%s: %s\n", colorCode, host, reset, line)
+				}
+				if err := scanner.Err(); err != nil {
+					logrus.Errorf("Error reading output for host %s: %v", host, err)
+				}
+			}()
+
+			// Wait for the command to finish
+			if err := cmd.Wait(); err != nil {
+				fmt.Printf("%s%s%s: %v\n", colorCode, host, reset, err)
+			}
+			w.Close()
 		}(host, idx)
 	}
 
 	wg.Wait()
-
 	logrus.Debugf("Command executed on %d hosts.", totalHosts)
 	return nil
 }
