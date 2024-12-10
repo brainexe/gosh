@@ -31,7 +31,7 @@ func InteractiveMode(hosts []string, userFlag string, noColor bool, sshCmd strin
 		for connected := range progressChan {
 			outputMutex.Lock()
 			if connected == totalHosts {
-				fmt.Printf("\rReady (%d)", totalHosts)
+				fmt.Printf("\rReady (%d)", connected)
 			} else {
 				fmt.Printf("\rConnecting (%d/%d)>", connected, totalHosts)
 			}
@@ -39,13 +39,13 @@ func InteractiveMode(hosts []string, userFlag string, noColor bool, sshCmd strin
 		}
 	}()
 
+	maxHostLen := maxHostName(hosts)
 	// Start a goroutine to connect to each host
 	for i, host := range hosts {
 		wg.Add(1)
 		go func(host string, idx int) {
-			// TODO: throttle new connections if needed
 			defer wg.Done()
-			hs, err := NewHostSession(host, userFlag, idx, noColor, sshCmd)
+			hs, err := NewHostSession(host, userFlag, idx, noColor, sshCmd, maxHostLen)
 			if err != nil {
 				logrus.Errorf("Failed to connect to host %s: %v", host, err)
 				return
@@ -61,9 +61,10 @@ func InteractiveMode(hosts []string, userFlag string, noColor bool, sshCmd strin
 	// Wait for all connections to complete
 	wg.Wait()
 	close(progressChan)
+	// Move to a new line before starting interaction
+	fmt.Println()
 
 	if len(hostSessions) == 0 {
-		logrus.Error("No hosts connected successfully.")
 		return errors.New("no hosts connected successfully")
 	}
 

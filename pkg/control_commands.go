@@ -87,7 +87,7 @@ func UploadFileToHosts(filePath string, sessions map[string]*HostSession) {
 				return
 			}
 
-			fmt.Printf("%s%s%s: Uploaded file %s\n", hs.ColorCode, hs.Host, reset, remoteFileName)
+			fmt.Printf("%s%s%s: Uploaded file %s\n", hs.ColorCode, hs.Host, ansiReset, remoteFileName)
 		}(hs)
 	}
 	wg.Wait()

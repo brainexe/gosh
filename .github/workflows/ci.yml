@@ -39,16 +39,3 @@ jobs:
 
       - name: Run GoLand CI linters
         uses: golangci/golangci-lint-action@v3
-
-    # Optional steps to build and upload artifacts
-    # - name: Build binaries
-    #   run: |
-    #     GOOS=linux GOARCH=amd64 go build -v -o bin/gosh-linux ./cmd
-    #     GOOS=darwin GOARCH=amd64 go build -v -o bin/gosh-macos ./cmd
-    #     GOOS=windows GOARCH=amd64 go build -v -o bin/gosh.exe ./cmd
-
-    # - name: Upload artifacts
-    #   uses: actions/upload-artifact@v3
-    #   with:
-    #     name: gosh-binaries
-    #     path: bin/

@@ -17,10 +17,11 @@ type HostSession struct {
 	Stdout    io.Reader
 	Stderr    io.Reader
 	ColorCode string
+	Padding   string
 }
 
 // NewHostSession creates a new HostSession using the system ssh command
-func NewHostSession(host string, userFlag string, idx int, noColor bool, sshCmd string) (*HostSession, error) {
+func NewHostSession(host string, userFlag string, idx int, noColor bool, sshCmd string, maxHostLen int) (*HostSession, error) {
 	// Construct SSH arguments
 	// Include the '-tt' option to force pseudo-terminal allocation
 	sshArgs := []string{"-tt"}
@@ -69,7 +70,7 @@ func NewHostSession(host string, userFlag string, idx int, noColor bool, sshCmd 
 
 	colorCode := ""
 	if !noColor {
-		colorCode = GetColorCode(idx)
+		colorCode = getColorCode(idx)
 	}
 
 	hs := &HostSession{
@@ -79,6 +80,7 @@ func NewHostSession(host string, userFlag string, idx int, noColor bool, sshCmd 
 		Stdout:    stdout,
 		Stderr:    stderr,
 		ColorCode: colorCode,
+		Padding:   getPadding(host, maxHostLen),
 	}
 
 	return hs, nil

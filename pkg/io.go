@@ -16,15 +16,12 @@ type hostOutput struct {
 	Host      string
 	Data      string
 	ColorCode string
+	Padding   string
 }
 
-// ReadHostOutput reads the output from a host session and sends it to the output channel
-func ReadHostOutput(hs *HostSession, outputChan chan<- hostOutput) {
-	defer func() {
-		if err := hs.Close(); err != nil {
-			logrus.Errorf("Error closing host session for %s: %v", hs.Host, err)
-		}
-	}()
+// readHostOutput reads the output from a host session and sends it to the output channel
+func readHostOutput(hs *HostSession, outputChan chan<- hostOutput) {
+	defer hs.Close()
 
 	reader := bufio.NewReader(io.MultiReader(hs.Stdout, hs.Stderr))
 
@@ -41,18 +38,19 @@ func ReadHostOutput(hs *HostSession, outputChan chan<- hostOutput) {
 			cleanLine := stripAnsiEscapeSequences(line)
 			cleanLine = strings.TrimSpace(cleanLine)
 
-			// Debug: Output the received line
-			logrus.Debugf("%s received: %s", hs.Host, cleanLine)
-
 			// Ignore empty lines
 			if cleanLine == "" {
 				continue
 			}
 
+			// Debug: Output the received line
+			logrus.Debugf("%s received: %s", hs.Host, cleanLine)
+
 			outputChan <- hostOutput{
 				Host:      hs.Host,
 				Data:      cleanLine,
 				ColorCode: hs.ColorCode,
+				Padding:   hs.Padding,
 			}
 		}
 
@@ -62,24 +60,24 @@ func ReadHostOutput(hs *HostSession, outputChan chan<- hostOutput) {
 	}
 }
 
-// ReadUserInput reads user input from stdin and sends it to the input channel
-func ReadUserInput(inputChan chan<- string, doneChan <-chan struct{}) {
+// readUserInput reads user input from stdin and sends it to the input channel
+func readUserInput(inputChan chan<- string, doneChan <-chan struct{}) {
+	defer close(inputChan)
+
 	scanner := bufio.NewScanner(os.Stdin)
 	for {
 		fmt.Print("> ")
 		select {
 		case <-doneChan:
-			close(inputChan)
+			// application is shutting down
 			return
 		default:
 			if scanner.Scan() {
-				input := scanner.Text()
-				inputChan <- input
+				inputChan <- scanner.Text()
 			} else {
 				if err := scanner.Err(); err != nil {
 					logrus.Errorf("Error reading user input: %v", err)
 				}
-				close(inputChan)
 				return
 			}
 		}

@@ -1,29 +1,29 @@
 package main
 
 import (
-	"flag"
 	"fmt"
 	"os"
 
 	"github.com/innogames/gosh/pkg"
 	"github.com/sirupsen/logrus"
+	"github.com/spf13/pflag"
 )
 
 func main() {
 	// Parse command-line flags
-	command := flag.String("command", "", "Command to execute on remote hosts")
-	userFlag := flag.String("user", "", "Remote user to log in as")
-	noColor := flag.Bool("no-color", false, "Disable colored hostnames")
-	sshCmd := flag.String("ssh-cmd", "ssh", "SSH command to use for connecting")
-	verbose := flag.Bool("verbose", false, "Enable verbose logging")
-	flag.Parse()
+	command := pflag.String("command", "", "Command to execute on remote hosts")
+	userFlag := pflag.String("user", "", "Remote user to log in as")
+	noColor := pflag.Bool("no-color", false, "Disable colored hostnames")
+	sshCmd := pflag.String("ssh-cmd", "ssh", "SSH command to use for connecting")
+	verbose := pflag.Bool("verbose", false, "Enable verbose logging")
+	pflag.Parse()
 
 	// list of hostnames
-	hosts := flag.Args()
+	hosts := pflag.Args()
 
 	if len(hosts) == 0 {
 		fmt.Println("Usage: gosh [OPTIONS]... HOSTS...")
-		flag.PrintDefaults()
+		pflag.PrintDefaults()
 		os.Exit(1)
 	}
 
