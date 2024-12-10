@@ -19,6 +19,7 @@ func main() {
 	flag.Parse()
 
 	// list of hostnames
+	// todo also support command in the end
 	hosts := flag.Args()
 
 	if len(hosts) == 0 {

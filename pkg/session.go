@@ -69,7 +69,7 @@ func NewHostSession(host string, userFlag string, idx int, noColor bool, sshCmd 
 
 	colorCode := ""
 	if !noColor {
-		colorCode = GetColorCode(idx)
+		colorCode = getColorCode(idx)
 	}
 
 	hs := &HostSession{

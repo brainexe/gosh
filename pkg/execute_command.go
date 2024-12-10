@@ -46,18 +46,18 @@ func ExecuteCommandOnHosts(hosts []string, command string, userFlag string, noCo
 			// Prepare color codes
 			colorCode := ""
 			if !noColor {
-				colorCode = GetColorCode(idx)
+				colorCode = getColorCode(idx)
 			}
 
 			// Create an io.Pipe to capture combined stdout and stderr
 			r, w := io.Pipe()
 			cmd.Stdout = w
 			cmd.Stderr = w
+			defer w.Close()
 
 			// Start the command
 			if err := cmd.Start(); err != nil {
 				logrus.Errorf("Failed to start SSH command for host %s: %v", host, err)
-				w.Close()
 				return
 			}
 
@@ -77,7 +77,6 @@ func ExecuteCommandOnHosts(hosts []string, command string, userFlag string, noCo
 			if err := cmd.Wait(); err != nil {
 				fmt.Printf("%s%s%s: %v\n", colorCode, host, reset, err)
 			}
-			w.Close()
 		}(host, idx)
 	}
 

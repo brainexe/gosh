@@ -2,8 +2,8 @@ package pkg
 
 var reset = "\033[0m"
 
-// GetColorCode returns an ANSI color code based on the index
-func GetColorCode(idx int) string {
+// getColorCode returns an ANSI color code based on the index
+func getColorCode(idx int) string {
 	// todo more colors?
 	// ANSI color codes with bold
 	colors := []string{
