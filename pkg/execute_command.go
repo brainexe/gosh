@@ -23,21 +23,11 @@ func ExecuteCommandOnHosts(hosts []string, command string, userFlag string, noCo
 		go func(host string, idx int) {
 			defer wg.Done()
 
-			// Add user@host
-			userAtHost := host
-			if userFlag != "" {
-				userAtHost = fmt.Sprintf("%s@%s", userFlag, host)
-			}
-
 			// Add the command, wrapped with 'bash -c' to ensure proper execution
 			remoteCommand := fmt.Sprintf("bash -c %q", command)
 
-			sshArgs := []string{
-				"-tt",                  // Force pseudo-terminal allocation
-				"-o", "LogLevel=QUIET", // Suppress warnings
-				userAtHost,    // user@host or just host
-				remoteCommand, // actual command
-			}
+			sshArgs := getSSHArgs(host, userFlag)
+			sshArgs = append(sshArgs, remoteCommand)
 
 			// Prepare the SSH command
 			cmd := exec.Command(sshCmd, sshArgs...)
@@ -45,18 +35,11 @@ func ExecuteCommandOnHosts(hosts []string, command string, userFlag string, noCo
 			// Verbose logging
 			logrus.Debugf("SSH command: %s %s", sshCmd, strings.Join(sshArgs, " "))
 
-			// Prepare color codes
-			colorCode := ""
-			if !noColor {
-				colorCode = getColorCode(idx)
-			}
-			padding := getPadding(host, maxHostLen)
-
 			// Create an io.Pipe to capture combined stdout and stderr
 			r, w := io.Pipe()
+			defer w.Close()
 			cmd.Stdout = w
 			cmd.Stderr = w
-			defer w.Close()
 
 			// Start the command
 			if err := cmd.Start(); err != nil {
@@ -66,10 +49,12 @@ func ExecuteCommandOnHosts(hosts []string, command string, userFlag string, noCo
 
 			// Scan and print the output, line by line
 			scanner := bufio.NewScanner(r)
+			prefix := getPrefix(host, noColor, idx, maxHostLen)
+
 			go func() {
 				for scanner.Scan() {
 					line := scanner.Text()
-					fmt.Printf("%s%s%s%s: %s\n", colorCode, host, ansiReset, padding, line)
+					fmt.Printf("%s: %s\n", prefix, line)
 				}
 				if err := scanner.Err(); err != nil {
 					logrus.Errorf("Error reading output for host %s: %v", host, err)
@@ -78,7 +63,7 @@ func ExecuteCommandOnHosts(hosts []string, command string, userFlag string, noCo
 
 			// Wait for the command to finish
 			if err := cmd.Wait(); err != nil {
-				fmt.Printf("%s%s%s%s: %v\n", colorCode, host, ansiReset, padding, formatError(err))
+				fmt.Printf("%s: %v\n", prefix, formatError(err, noColor))
 			}
 		}(host, idx)
 	}

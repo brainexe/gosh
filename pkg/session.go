@@ -11,37 +11,23 @@ import (
 
 // HostSession represents a session with a remote host using system ssh
 type HostSession struct {
-	Host      string
-	Cmd       *exec.Cmd
-	Stdin     io.WriteCloser
-	Stdout    io.Reader
-	Stderr    io.Reader
-	ColorCode string
-	Padding   string
+	Host   string
+	Prefix string
+	Cmd    *exec.Cmd
+	Stdin  io.WriteCloser
+	Stdout io.Reader
+	Stderr io.Reader
 }
 
-// NewHostSession creates a new HostSession using the system ssh command
-func NewHostSession(host string, userFlag string, idx int, noColor bool, sshCmd string, maxHostLen int) (*HostSession, error) {
-	// Construct SSH arguments
-	// Include the '-tt' option to force pseudo-terminal allocation
-	sshArgs := []string{"-tt"}
-	sshArgs = append(sshArgs, "-o", "LogLevel=QUIET")
-
+// newHostSession creates a new HostSession using the system ssh command
+func newHostSession(host string, userFlag string, idx int, noColor bool, sshCmd string, maxHostLen int) (*HostSession, error) {
 	// Prepare the remote command
 	// Unset PROMPT_COMMAND, set PS1, and exec bash
 	remoteCommand := `sh -i -c 'PS1=""; ENV=; export PS1 ENV; exec sh -i'`
 
-	// Add user@host and remote command
-	var username string
-	if userFlag != "" {
-		username = userFlag + "@"
-	} else {
-		username = ""
-	}
-	userAtHost := username + host
-	sshArgs = append(sshArgs, userAtHost, remoteCommand)
+	sshArgs := getSSHArgs(host, userFlag)
+	sshArgs = append(sshArgs, remoteCommand)
 
-	// Create the command
 	cmd := exec.Command(sshCmd, sshArgs...)
 
 	// Create pipes for stdin, stdout, stderr
@@ -68,19 +54,13 @@ func NewHostSession(host string, userFlag string, idx int, noColor bool, sshCmd 
 	// Add a log message when the connection is established
 	logrus.Debugf("Connection established with %s", host)
 
-	colorCode := ""
-	if !noColor {
-		colorCode = getColorCode(idx)
-	}
-
 	hs := &HostSession{
-		Host:      host,
-		Cmd:       cmd,
-		Stdin:     stdin,
-		Stdout:    stdout,
-		Stderr:    stderr,
-		ColorCode: colorCode,
-		Padding:   getPadding(host, maxHostLen),
+		Host:   host,
+		Prefix: getPrefix(host, noColor, idx, maxHostLen),
+		Cmd:    cmd,
+		Stdin:  stdin,
+		Stdout: stdout,
+		Stderr: stderr,
 	}
 
 	return hs, nil

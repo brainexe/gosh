@@ -1,10 +1,18 @@
 package pkg
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+)
 
 var ansiReset = "\033[0m"
 
-func formatError(input error) string {
+// formatError returns a formatted error message
+func formatError(input error, noColor bool) string {
+	if noColor {
+		return input.Error()
+	}
+
 	return "\033[31m" + input.Error() + ansiReset
 }
 
@@ -47,6 +55,12 @@ func maxHostName(hosts []string) int {
 	return maxLen
 }
 
-func getPadding(host string, maxLen int) string {
-	return strings.Repeat(" ", maxLen-len(host)+1)
+func getPrefix(host string, noColor bool, idx int, maxHostLen int) string {
+	colorCode := ""
+	if !noColor {
+		colorCode = getColorCode(idx)
+	}
+	padding := strings.Repeat(" ", maxHostLen-len(host)+1)
+
+	return fmt.Sprintf("%s%s%s%s: ", colorCode, host, ansiReset, padding)
 }

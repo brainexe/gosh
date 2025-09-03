@@ -49,7 +49,7 @@ func StartInteractiveSession(hostSessions map[string]*HostSession, outputMutex *
 
 			// handle special control commands like :upload
 			if len(input) > 0 && input[0] == ':' {
-				HandleControlCommand(input, hostSessions)
+				handleControlCommand(input, hostSessions)
 				continue
 			}
 
@@ -63,7 +63,7 @@ func StartInteractiveSession(hostSessions map[string]*HostSession, outputMutex *
 		case output := <-outputChan:
 			// we received output from a host -> print it!
 			outputMutex.Lock()
-			fmt.Printf("\r%s%s%s%s: %s\n", output.ColorCode, output.Host, ansiReset, output.Padding, output.Data)
+			fmt.Printf("\r%s %s\n", output.Prefix, output.Data)
 			// Reprint prompt
 			fmt.Print("> ")
 			outputMutex.Unlock()

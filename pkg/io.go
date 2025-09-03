@@ -13,10 +13,9 @@ import (
 
 // hostOutput represents the output from a host
 type hostOutput struct {
-	Host      string
-	Data      string
-	ColorCode string
-	Padding   string
+	Host   string
+	Data   string
+	Prefix string
 }
 
 // readHostOutput reads the output from a host session and sends it to the output channel
@@ -47,10 +46,9 @@ func readHostOutput(hs *HostSession, outputChan chan<- hostOutput) {
 			logrus.Debugf("%s received: %s", hs.Host, cleanLine)
 
 			outputChan <- hostOutput{
-				Host:      hs.Host,
-				Data:      cleanLine,
-				ColorCode: hs.ColorCode,
-				Padding:   hs.Padding,
+				Host:   hs.Host,
+				Data:   cleanLine,
+				Prefix: hs.Prefix,
 			}
 		}
 

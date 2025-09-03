@@ -45,7 +45,7 @@ func InteractiveMode(hosts []string, userFlag string, noColor bool, sshCmd strin
 		wg.Add(1)
 		go func(host string, idx int) {
 			defer wg.Done()
-			hs, err := NewHostSession(host, userFlag, idx, noColor, sshCmd, maxHostLen)
+			hs, err := newHostSession(host, userFlag, idx, noColor, sshCmd, maxHostLen)
 			if err != nil {
 				logrus.Errorf("Failed to connect to host %s: %v", host, err)
 				return

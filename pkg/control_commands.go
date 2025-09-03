@@ -10,14 +10,14 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// HandleControlCommand handles control commands starting with ':'
-func HandleControlCommand(input string, sessions map[string]*HostSession) {
+// handleControlCommand handles control commands starting with ':'
+func handleControlCommand(input string, sessions map[string]*HostSession) {
 	if len(input) < 2 {
 		fmt.Println("Invalid control command.")
 		return
 	}
 
-	commandParts := SplitCommand(input[1:])
+	commandParts := splitCommand(input[1:])
 	switch commandParts[0] {
 	case "upload":
 		if len(commandParts) < 2 {
@@ -31,8 +31,8 @@ func HandleControlCommand(input string, sessions map[string]*HostSession) {
 	}
 }
 
-// SplitCommand splits the input command into parts
-func SplitCommand(input string) []string {
+// splitCommand splits the input command into parts
+func splitCommand(input string) []string {
 	var parts []string
 	var buf bytes.Buffer
 	inQuotes := false
@@ -87,7 +87,7 @@ func UploadFileToHosts(filePath string, sessions map[string]*HostSession) {
 				return
 			}
 
-			fmt.Printf("%s%s%s: Uploaded file %s\n", hs.ColorCode, hs.Host, ansiReset, remoteFileName)
+			fmt.Printf("%s: Uploaded file %s\n", hs.Prefix, remoteFileName)
 		}(hs)
 	}
 	wg.Wait()
