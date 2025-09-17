@@ -1,6 +1,25 @@
-vendor
-.idea
-*.iml
+# Build artifacts
+build/
+*.exe
+*.dll
+*.so
+*.dylib
 
-build/gosh*
+# Environment files (contains sensitive host information)
+.env
+
+# Go modules
+vendor/
+
+# Editor files
+.vscode/
+.idea/
+*.iml
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
 
