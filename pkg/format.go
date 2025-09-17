@@ -32,7 +32,7 @@ func FormatHost(host string, idx, maxLen int, noColor bool) string {
 		return padded
 	}
 	code := Colors[idx%len(Colors)]
-	return "\033[" + code + padded + Reset
+	return "\033[1;" + code + padded + Reset
 }
 
 // MaxLen returns the length of the longest string

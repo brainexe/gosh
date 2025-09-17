@@ -1,11 +1,22 @@
 package pkg
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os/exec"
 	"strings"
 )
+
+// runCmdWithSeparateOutput runs a command and returns stdout, stderr, and error separately
+func runCmdWithSeparateOutput(cmd *exec.Cmd) (string, string, error) {
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	return stdout.String(), stderr.String(), err
+}
 
 // RunSSH executes SSH command for a single host
 func RunSSH(host, command, user string, idx, maxHostLen int, noColor bool) {
@@ -18,51 +29,31 @@ func RunSSH(host, command, user string, idx, maxHostLen int, noColor bool) {
 	args = append(args, host, command)
 	cmd := exec.CommandContext(context.Background(), "ssh", args...)
 
-	output, err := cmd.CombinedOutput()
+	stdout, stderr, err := runCmdWithSeparateOutput(cmd)
 	prefix := FormatHost(host, idx, maxHostLen, noColor)
 
+	// Display stdout if present
+	if len(stdout) > 0 {
+		lines := strings.Split(strings.TrimRight(stdout, "\n"), "\n")
+		for _, line := range lines {
+			if line != "" {
+				fmt.Printf("%s: %s\n", prefix, line)
+			}
+		}
+	}
+
+	// Display stderr if present
+	if len(stderr) > 0 {
+		lines := strings.Split(strings.TrimRight(stderr, "\n"), "\n")
+		for _, line := range lines {
+			if line != "" {
+				fmt.Printf("%s: %s\n", prefix, line)
+			}
+		}
+	}
+
+	// Display error status if command failed
 	if err != nil {
 		fmt.Printf("%s: ERROR: %v\n", prefix, err)
-		return
 	}
-
-	lines := strings.Split(strings.TrimRight(string(output), "\n"), "\n")
-	for _, line := range lines {
-		if line != "" {
-			fmt.Printf("%s: %s\n", prefix, line)
-		}
-	}
-}
-
-// RunSCP uploads a file to a single host using scp
-func RunSCP(host, filepath, user string, idx, maxHostLen int, noColor bool) {
-	args := []string{"-o", "ConnectTimeout=5", "-o", "BatchMode=yes"}
-
-	if user != "" {
-		args = append(args, "-o", "User="+user)
-	}
-
-	// Get just the filename for the destination
-	filename := filepath
-	if strings.Contains(filepath, "/") {
-		parts := strings.Split(filepath, "/")
-		filename = parts[len(parts)-1]
-	}
-
-	// scp source destination
-	args = append(args, filepath, host+":"+filename)
-	cmd := exec.CommandContext(context.Background(), "scp", args...)
-
-	output, err := cmd.CombinedOutput()
-	prefix := FormatHost(host, idx, maxHostLen, noColor)
-
-	if err != nil {
-		fmt.Printf("%s: UPLOAD ERROR: %v\n", prefix, err)
-		if len(output) > 0 {
-			fmt.Printf("%s: %s\n", prefix, strings.TrimSpace(string(output)))
-		}
-		return
-	}
-
-	fmt.Printf("%s: Upload successful: %s\n", prefix, filename)
 }

@@ -38,4 +38,6 @@ jobs:
         run: make test
 
       - name: Run GoLand CI linters
-        uses: golangci/golangci-lint-action@v3
+        uses: golangci/golangci-lint-action@v4
+        with:
+          args: --out-format=colored-line-number

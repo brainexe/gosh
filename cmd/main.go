@@ -34,6 +34,6 @@ func main() {
 	if *command != "" {
 		pkg.ExecuteCommand(hosts, *command, *user, *noColor)
 	} else {
-		pkg.InteractiveMode(hosts, *user, *noColor)
+		pkg.InteractiveMode(hosts, *user, *noColor, *verbose)
 	}
 }

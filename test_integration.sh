@@ -407,6 +407,99 @@ EOF
     fi
 }
 
+# Test SSH connection failures and error handling
+test_connection_failures() {
+    # Test connection to non-existent host
+    print_test "Connection failure - non-existent host (direct mode)"
+    local output
+    output=$(timeout 10 ./build/gosh -c "echo test" nonexistent.host.invalid.12345 2>&1 || true)
+    if [[ $output =~ "ERROR" ]] || [[ $output =~ "could not resolve hostname" ]] || [[ $output =~ "Connection refused" ]] || [[ $output =~ "Name or service not known" ]]; then
+        test_passed
+    else
+        test_failed "Expected connection error for non-existent host"
+        return
+    fi
+
+    # Test connection timeout with unreachable IP
+    print_test "Connection timeout - unreachable IP (direct mode)"
+    output=$(timeout 10 ./build/gosh -c "echo test" 192.0.2.1 2>&1 || true) # RFC5737 test IP
+    if [[ $output =~ "ERROR" ]] || [[ $output =~ "Connection timed out" ]] || [[ $output =~ "Network is unreachable" ]]; then
+        test_passed
+    else
+        test_failed "Expected timeout error for unreachable IP"
+        return
+    fi
+
+    # Test invalid SSH port
+    print_test "Connection failure - invalid SSH port (direct mode)"
+    output=$(timeout 10 ./build/gosh -c "echo test" localhost:99999 2>&1 || true)
+    if [[ $output =~ "ERROR" ]] || [[ $output =~ "Connection refused" ]] || [[ $output =~ "port" ]]; then
+        test_passed
+    else
+        test_failed "Expected connection error for invalid port"
+    fi
+}
+
+# Test file upload functionality (requires real SSH connection)
+test_file_upload_functionality() {
+    # Create test file for upload
+    local test_file="/tmp/gosh_upload_test.txt"
+    echo "This is a test file for gosh upload functionality" > "$test_file"
+    echo "Created at: $(date)" >> "$test_file"
+    
+    # Test file upload - Interactive mode
+    print_test "File upload - interactive mode"
+    local user_flag=""
+    if [[ -n "$TEST_SSH_USER" ]]; then
+        user_flag="-u $TEST_SSH_USER"
+    fi
+    
+    local output
+    output=$(timeout "$TEST_SSH_TIMEOUT" bash -c "
+        ./build/gosh $user_flag $TEST_HOSTS << 'EOF'
+:upload $test_file
+exit
+EOF
+" 2>&1 || true)
+    
+    if [[ $output =~ "Upload successful" ]] || [[ $output =~ "uploaded" ]]; then
+        test_passed
+        
+        # Verify file was uploaded by checking if it exists on remote host
+        print_test "File upload verification - file exists on remote"
+        local verify_output
+        verify_output=$(run_gosh_direct "ls -la gosh_upload_test.txt && cat gosh_upload_test.txt" "$TEST_HOSTS")
+        if [[ $verify_output =~ "This is a test file for gosh upload functionality" ]]; then
+            test_passed
+            
+            # Clean up remote file
+            run_gosh_direct "rm -f gosh_upload_test.txt" "$TEST_HOSTS" > /dev/null 2>&1 || true
+        else
+            test_failed "Uploaded file not found or content mismatch on remote host"
+        fi
+    else
+        test_failed "File upload failed or no success message"
+    fi
+    
+    # Test upload of non-existent file
+    print_test "File upload error - non-existent file"
+    output=$(timeout "$TEST_SSH_TIMEOUT" bash -c "
+        ./build/gosh $user_flag $TEST_HOSTS << 'EOF'
+:upload /nonexistent/file/path.txt
+exit
+EOF
+" 2>&1 || true)
+    
+    if [[ $output =~ "does not exist" ]] || [[ $output =~ "Error:" ]]; then
+        test_passed
+    else
+        test_failed "Expected error for non-existent file upload"
+    fi
+    
+    # Clean up test file
+    rm -f "$test_file"
+}
+
 # Print test summary
 print_summary() {
     echo -e "${BLUE}========================================${NC}"
@@ -452,6 +545,8 @@ main() {
     test_error_handling
     test_multiple_hosts
     test_color_output
+    test_connection_failures
+    test_file_upload_functionality
 
     # Print results
     print_summary

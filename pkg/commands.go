@@ -1,8 +1,11 @@
 package pkg
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"os/exec"
+	"strings"
 	"sync"
 )
 
@@ -12,11 +15,9 @@ func ExecuteCommand(hosts []string, command, user string, noColor bool) {
 	var wg sync.WaitGroup
 
 	for i, host := range hosts {
-		wg.Add(1)
-		go func(host string, idx int) {
-			defer wg.Done()
-			RunSSH(host, command, user, idx, maxHostLen, noColor)
-		}(host, i)
+		wg.Go(func() {
+			RunSSH(host, command, user, i, maxHostLen, noColor)
+		})
 	}
 
 	wg.Wait()
@@ -26,7 +27,7 @@ func ExecuteCommand(hosts []string, command, user string, noColor bool) {
 func UploadFile(hosts []string, filepath, user string, noColor bool) {
 	// Check if local file exists
 	if _, err := os.Stat(filepath); os.IsNotExist(err) {
-		fmt.Printf("Error: File '%s' does not exist\n", filepath)
+		fmt.Printf("❌ Error: File '%s' does not exist\n", filepath)
 		return
 	}
 
@@ -34,12 +35,43 @@ func UploadFile(hosts []string, filepath, user string, noColor bool) {
 	var wg sync.WaitGroup
 
 	for i, host := range hosts {
-		wg.Add(1)
-		go func(host string, idx int) {
-			defer wg.Done()
-			RunSCP(host, filepath, user, idx, maxHostLen, noColor)
-		}(host, i)
+		wg.Go(func() {
+			RunSCP(host, filepath, user, i, maxHostLen, noColor)
+		})
 	}
 
 	wg.Wait()
+}
+
+// RunSCP uploads a file to a single host using scp
+func RunSCP(host, filepath, user string, idx, maxHostLen int, noColor bool) {
+	args := []string{"-o", "ConnectTimeout=5", "-o", "BatchMode=yes"}
+
+	if user != "" {
+		args = append(args, "-o", "User="+user)
+	}
+
+	// Get just the filename for the destination
+	filename := filepath
+	if strings.Contains(filepath, "/") {
+		parts := strings.Split(filepath, "/")
+		filename = parts[len(parts)-1]
+	}
+
+	// scp source destination
+	args = append(args, filepath, host+":"+filename)
+	cmd := exec.CommandContext(context.Background(), "scp", args...)
+
+	output, err := cmd.CombinedOutput()
+	prefix := FormatHost(host, idx, maxHostLen, noColor)
+
+	if err != nil {
+		fmt.Printf("%s: ❌ UPLOAD ERROR: %v\n", prefix, err)
+		if len(output) > 0 {
+			fmt.Printf("%s: %s\n", prefix, strings.TrimSpace(string(output)))
+		}
+		return
+	}
+
+	fmt.Printf("%s: ✅ Upload successful: %s\n", prefix, filename)
 }
