@@ -9,15 +9,15 @@ all: test lint build
 build:
 	@echo "Building $(BINARY_NAME)..."
 	@mkdir -p $(BUILD_DIR)
-	@go build -trimpath -ldflags="-s -w" -o $(BUILD_DIR)/$(BINARY_NAME) .
+	@go build -mod=mod -trimpath -ldflags="-s -w" -o $(BUILD_DIR)/$(BINARY_NAME) ./cmd
 
 test:
 	@echo "Running tests..."
-	@go test -v ./...
+	@go test -mod=mod -v ./...
 
 test-race:
 	@echo "Running tests with race detection..."
-	@go test -race -v ./...
+	@go test -mod=mod -race -v ./...
 
 lint:
 	@echo "Running linter..."

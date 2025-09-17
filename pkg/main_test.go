@@ -1,4 +1,4 @@
-package main
+package pkg
 
 import (
 	"bytes"
@@ -24,9 +24,9 @@ func TestMaxLen(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		result := maxLen(test.input)
+		result := MaxLen(test.input)
 		if result != test.expected {
-			t.Errorf("maxLen(%v) = %d, expected %d", test.input, result, test.expected)
+			t.Errorf("MaxLen(%v) = %d, expected %d", test.input, result, test.expected)
 		}
 	}
 }
@@ -45,9 +45,9 @@ func TestFormatHost(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		result := formatHost(test.host, test.idx, test.maxLen, test.noColor)
+		result := FormatHost(test.host, test.idx, test.maxLen, test.noColor)
 		if !strings.Contains(result, test.contains) {
-			t.Errorf("formatHost(%q, %d, %d, %t) = %q, should contain %q",
+			t.Errorf("FormatHost(%q, %d, %d, %t) = %q, should contain %q",
 				test.host, test.idx, test.maxLen, test.noColor, result, test.contains)
 		}
 	}
@@ -58,7 +58,7 @@ func startFakeSSHServer(t *testing.T, addr string, response string) net.Listener
 	t.Helper()
 
 	// Load a private key for the server
-	privateBytes, err := os.ReadFile("test_data/test_server_key")
+	privateBytes, err := os.ReadFile("../test_data/test_server_key")
 	if err != nil {
 		t.Fatalf("Failed to load private key: %v", err)
 	}

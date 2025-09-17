@@ -1,4 +1,4 @@
-package main
+package pkg
 
 import (
 	"context"
@@ -7,8 +7,8 @@ import (
 	"strings"
 )
 
-// runSSH executes SSH command for a single host
-func runSSH(host, command, user string, idx, maxHostLen int, noColor bool) {
+// RunSSH executes SSH command for a single host
+func RunSSH(host, command, user string, idx, maxHostLen int, noColor bool) {
 	args := []string{"-o", "ConnectTimeout=5", "-o", "BatchMode=yes"}
 
 	if user != "" {
@@ -19,7 +19,7 @@ func runSSH(host, command, user string, idx, maxHostLen int, noColor bool) {
 	cmd := exec.CommandContext(context.Background(), "ssh", args...)
 
 	output, err := cmd.CombinedOutput()
-	prefix := formatHost(host, idx, maxHostLen, noColor)
+	prefix := FormatHost(host, idx, maxHostLen, noColor)
 
 	if err != nil {
 		fmt.Printf("%s: ERROR: %v\n", prefix, err)
@@ -34,8 +34,8 @@ func runSSH(host, command, user string, idx, maxHostLen int, noColor bool) {
 	}
 }
 
-// runSCP uploads a file to a single host using scp
-func runSCP(host, filepath, user string, idx, maxHostLen int, noColor bool) {
+// RunSCP uploads a file to a single host using scp
+func RunSCP(host, filepath, user string, idx, maxHostLen int, noColor bool) {
 	args := []string{"-o", "ConnectTimeout=5", "-o", "BatchMode=yes"}
 
 	if user != "" {
@@ -54,7 +54,7 @@ func runSCP(host, filepath, user string, idx, maxHostLen int, noColor bool) {
 	cmd := exec.CommandContext(context.Background(), "scp", args...)
 
 	output, err := cmd.CombinedOutput()
-	prefix := formatHost(host, idx, maxHostLen, noColor)
+	prefix := FormatHost(host, idx, maxHostLen, noColor)
 
 	if err != nil {
 		fmt.Printf("%s: UPLOAD ERROR: %v\n", prefix, err)

@@ -1,6 +1,9 @@
 #!/bin/bash
 set -euo pipefail
 
+
+make build
+
 # Integration test script for gosh
 # Tests real SSH connections using hosts from .env file
 
@@ -70,8 +73,8 @@ test_failed() {
     TESTS_FAILED=$((TESTS_FAILED + 1))
 }
 
-# Run gosh command and capture output
-run_gosh() {
+# Run gosh command in direct mode and capture output
+run_gosh_direct() {
     local cmd="$1"
     local hosts="$2"
     local user_flag=""
@@ -84,124 +87,261 @@ run_gosh() {
     timeout "$TEST_SSH_TIMEOUT" ./build/gosh $user_flag -c "$cmd" $hosts 2>&1 || true
 }
 
-# Test basic functionality
-test_basic_commands() {
-    print_test "Basic Commands - date, uptime, hostname"
+# Run gosh command in interactive mode and capture output
+run_gosh_interactive() {
+    local cmd="$1"
+    local hosts="$2"
+    local user_flag=""
 
-    # Test date command
+    if [[ -n "$TEST_SSH_USER" ]]; then
+        user_flag="-u $TEST_SSH_USER"
+    fi
+
+    # Use timeout to prevent hanging tests, simulate interactive input
+    timeout "$TEST_SSH_TIMEOUT" bash -c "
+        ./build/gosh $user_flag $hosts << 'EOF'
+$cmd
+exit
+EOF
+" 2>&1 || true
+}
+
+# Run gosh command and capture output (backwards compatibility)
+run_gosh() {
+    run_gosh_direct "$1" "$2"
+}
+
+# Test basic functionality in both direct and interactive modes
+test_basic_commands() {
+    # Test date command - Direct mode
+    print_test "Basic Commands - date (direct mode)"
     local output
-    output=$(run_gosh "date" "$TEST_HOSTS")
+    output=$(run_gosh_direct "date" "$TEST_HOSTS")
+    echo -e "${YELLOW}DEBUG: Actual output:${NC}"
+    echo "$output"
+    echo
     if [[ $output =~ [0-9]{4}-[0-9]{2}-[0-9]{2} ]] || [[ $output =~ [A-Z][a-z]{2}.*[0-9]{4} ]]; then
         test_passed
     else
-        test_failed "Date command didn't return expected date format"
+        test_failed "Date command in direct mode didn't return expected date format"
         return
     fi
 
-    print_test "Uptime command"
-    output=$(run_gosh "uptime" "$TEST_HOSTS")
+    # Test date command - Interactive mode
+    print_test "Basic Commands - date (interactive mode)"
+    output=$(run_gosh_interactive "date" "$TEST_HOSTS")
+    if [[ $output =~ [0-9]{4}-[0-9]{2}-[0-9]{2} ]] || [[ $output =~ [A-Z][a-z]{2}.*[0-9]{4} ]]; then
+        test_passed
+    else
+        test_failed "Date command in interactive mode didn't return expected date format"
+        return
+    fi
+
+    # Test uptime command - Direct mode
+    print_test "Uptime command (direct mode)"
+    output=$(run_gosh_direct "uptime" "$TEST_HOSTS")
     if [[ $output =~ "up" ]] || [[ $output =~ "load average" ]]; then
         test_passed
     else
-        test_failed "Uptime command didn't return expected output"
+        test_failed "Uptime command in direct mode didn't return expected output"
         return
     fi
 
-    print_test "Hostname command"
-    output=$(run_gosh "hostname" "$TEST_HOSTS")
+    # Test uptime command - Interactive mode
+    print_test "Uptime command (interactive mode)"
+    output=$(run_gosh_interactive "uptime" "$TEST_HOSTS")
+    if [[ $output =~ "up" ]] || [[ $output =~ "load average" ]]; then
+        test_passed
+    else
+        test_failed "Uptime command in interactive mode didn't return expected output"
+        return
+    fi
+
+    # Test hostname command - Direct mode
+    print_test "Hostname command (direct mode)"
+    output=$(run_gosh_direct "hostname" "$TEST_HOSTS")
     if [[ -n "$output" ]] && [[ ! $output =~ "ERROR" ]]; then
         test_passed
     else
-        test_failed "Hostname command failed"
+        test_failed "Hostname command in direct mode failed"
+        return
+    fi
+
+    # Test hostname command - Interactive mode
+    print_test "Hostname command (interactive mode)"
+    output=$(run_gosh_interactive "hostname" "$TEST_HOSTS")
+    if [[ -n "$output" ]] && [[ ! $output =~ "ERROR" ]]; then
+        test_passed
+    else
+        test_failed "Hostname command in interactive mode failed"
     fi
 }
 
-# Test file system commands (read-only)
+# Test file system commands (read-only) in both direct and interactive modes
 test_filesystem_commands() {
-    print_test "File system commands - ls, pwd, cat"
-
-    # Test ls command
+    # Test ls command - Direct mode
+    print_test "File system commands - ls / (direct mode)"
     local output
-    output=$(run_gosh "ls /" "$TEST_HOSTS")
+    output=$(run_gosh_direct "ls /" "$TEST_HOSTS")
+    echo -e "${YELLOW}DEBUG: Actual output:${NC}"
+    echo "$output"
+    echo
     if [[ $output =~ "bin" ]] || [[ $output =~ "usr" ]] || [[ $output =~ "etc" ]]; then
         test_passed
     else
-        test_failed "ls / didn't show expected directories"
+        test_failed "ls / in direct mode didn't show expected directories"
         return
     fi
 
-    print_test "pwd command"
-    output=$(run_gosh "pwd" "$TEST_HOSTS")
+    # Test ls command - Interactive mode
+    print_test "File system commands - ls / (interactive mode)"
+    output=$(run_gosh_interactive "ls /" "$TEST_HOSTS")
+    if [[ $output =~ "bin" ]] || [[ $output =~ "usr" ]] || [[ $output =~ "etc" ]]; then
+        test_passed
+    else
+        test_failed "ls / in interactive mode didn't show expected directories"
+        return
+    fi
+
+    # Test pwd command - Direct mode
+    print_test "pwd command (direct mode)"
+    output=$(run_gosh_direct "pwd" "$TEST_HOSTS")
     if [[ $output =~ "/" ]]; then
         test_passed
     else
-        test_failed "pwd didn't return a path"
+        test_failed "pwd in direct mode didn't return a path"
         return
     fi
 
-    print_test "cat /etc/hostname"
-    output=$(run_gosh "cat /etc/hostname 2>/dev/null || hostname" "$TEST_HOSTS")
+    # Test pwd command - Interactive mode
+    print_test "pwd command (interactive mode)"
+    output=$(run_gosh_interactive "pwd" "$TEST_HOSTS")
+    if [[ $output =~ "/" ]]; then
+        test_passed
+    else
+        test_failed "pwd in interactive mode didn't return a path"
+        return
+    fi
+
+    # Test cat /etc/hostname - Direct mode
+    print_test "cat /etc/hostname (direct mode)"
+    output=$(run_gosh_direct "cat /etc/hostname 2>/dev/null || hostname" "$TEST_HOSTS")
     if [[ -n "$output" ]] && [[ ! $output =~ "ERROR" ]]; then
         test_passed
     else
-        test_failed "Unable to read hostname"
+        test_failed "Unable to read hostname in direct mode"
+        return
+    fi
+
+    # Test cat /etc/hostname - Interactive mode
+    print_test "cat /etc/hostname (interactive mode)"
+    output=$(run_gosh_interactive "cat /etc/hostname 2>/dev/null || hostname" "$TEST_HOSTS")
+    if [[ -n "$output" ]] && [[ ! $output =~ "ERROR" ]]; then
+        test_passed
+    else
+        test_failed "Unable to read hostname in interactive mode"
     fi
 }
 
-# Test system information commands
+# Test system information commands in both direct and interactive modes
 test_system_info() {
-    print_test "System information - uname, whoami, id"
-
     local output
 
-    print_test "whoami command"
-    output=$(run_gosh "whoami" "$TEST_HOSTS")
+    # Test whoami command - Direct mode
+    print_test "whoami command (direct mode)"
+    output=$(run_gosh_direct "whoami" "$TEST_HOSTS")
+    echo -e "${YELLOW}DEBUG: Actual output:${NC}"
+    echo "$output"
+    echo
     if [[ -n "$output" ]] && [[ ! $output =~ "ERROR" ]]; then
         test_passed
     else
-        test_failed "whoami command failed"
+        test_failed "whoami command in direct mode failed"
         return
     fi
 
-    print_test "id command"
-    output=$(run_gosh "id" "$TEST_HOSTS")
+    # Test whoami command - Interactive mode
+    print_test "whoami command (interactive mode)"
+    output=$(run_gosh_interactive "whoami" "$TEST_HOSTS")
+    if [[ -n "$output" ]] && [[ ! $output =~ "ERROR" ]]; then
+        test_passed
+    else
+        test_failed "whoami command in interactive mode failed"
+        return
+    fi
+
+    # Test id command - Direct mode
+    print_test "id command (direct mode)"
+    output=$(run_gosh_direct "id" "$TEST_HOSTS")
     if [[ $output =~ "uid=" ]] || [[ $output =~ "gid=" ]]; then
         test_passed
     else
-        test_failed "id command didn't return expected output"
+        test_failed "id command in direct mode didn't return expected output"
+        return
+    fi
+
+    # Test id command - Interactive mode
+    print_test "id command (interactive mode)"
+    output=$(run_gosh_interactive "id" "$TEST_HOSTS")
+    if [[ $output =~ "uid=" ]] || [[ $output =~ "gid=" ]]; then
+        test_passed
+    else
+        test_failed "id command in interactive mode didn't return expected output"
     fi
 }
 
-# Test error handling
+# Test error handling in both direct and interactive modes
 test_error_handling() {
-    print_test "Error handling - invalid command"
-
+    # Test invalid command - Direct mode
+    print_test "Error handling - invalid command (direct mode)"
     local output
-    output=$(run_gosh "this_command_does_not_exist_12345" "$TEST_HOSTS")
+    output=$(run_gosh_direct "this_command_does_not_exist_12345" "$TEST_HOSTS")
     if [[ $output =~ "ERROR" ]] || [[ $output =~ "not found" ]] || [[ $output =~ "command not found" ]]; then
         test_passed
     else
-        test_failed "Invalid command should produce error"
+        test_failed "Invalid command in direct mode should produce error"
+        return
+    fi
+
+    # Test invalid command - Interactive mode
+    print_test "Error handling - invalid command (interactive mode)"
+    output=$(run_gosh_interactive "this_command_does_not_exist_12345" "$TEST_HOSTS")
+    if [[ $output =~ "ERROR" ]] || [[ $output =~ "not found" ]] || [[ $output =~ "command not found" ]]; then
+        test_passed
+    else
+        test_failed "Invalid command in interactive mode should produce error"
     fi
 }
 
-# Test multiple hosts (if more than one host is configured)
+# Test multiple hosts (if more than one host is configured) in both direct and interactive modes
 test_multiple_hosts() {
     local host_count
     host_count=$(echo "$TEST_HOSTS" | wc -w)
 
     if [[ $host_count -gt 1 ]]; then
-        print_test "Multiple hosts - parallel execution"
-
+        # Test multiple hosts - Direct mode
+        print_test "Multiple hosts - parallel execution (direct mode)"
         local output
-        output=$(run_gosh "echo 'test from \$(hostname)'" "$TEST_HOSTS")
+        output=$(run_gosh_direct "echo 'test from \$(hostname)'" "$TEST_HOSTS")
         local output_lines
         output_lines=$(echo "$output" | grep -c "test from" || true)
 
         if [[ $output_lines -ge 1 ]]; then
             test_passed
         else
-            test_failed "Multiple hosts test didn't return expected output from hosts"
+            test_failed "Multiple hosts test in direct mode didn't return expected output from hosts"
+            return
+        fi
+
+        # Test multiple hosts - Interactive mode
+        print_test "Multiple hosts - parallel execution (interactive mode)"
+        output=$(run_gosh_interactive "echo 'test from \$(hostname)'" "$TEST_HOSTS")
+        output_lines=$(echo "$output" | grep -c "test from" || true)
+
+        if [[ $output_lines -ge 1 ]]; then
+            test_passed
+        else
+            test_failed "Multiple hosts test in interactive mode didn't return expected output from hosts"
         fi
     else
         echo -e "${YELLOW}[SKIP]${NC} Multiple hosts test (only one host configured)"
@@ -209,20 +349,31 @@ test_multiple_hosts() {
     fi
 }
 
-# Test color output
+# Test color output in both direct and interactive modes
 test_color_output() {
-    print_test "Color output - default behavior"
-
+    # Test color output - Direct mode
+    print_test "Color output - default behavior (direct mode)"
     local output
-    output=$(run_gosh "echo test" "$TEST_HOSTS")
+    output=$(run_gosh_direct "echo test" "$TEST_HOSTS")
     if [[ $output =~ \[31m ]] || [[ $output =~ \[32m ]] || [[ $output =~ \[33m ]]; then
         test_passed
     else
-        test_failed "Color codes not found in output"
+        test_failed "Color codes not found in direct mode output"
         return
     fi
 
-    print_test "No color output - --no-color flag"
+    # Test color output - Interactive mode
+    print_test "Color output - default behavior (interactive mode)"
+    output=$(run_gosh_interactive "echo test" "$TEST_HOSTS")
+    if [[ $output =~ \[31m ]] || [[ $output =~ \[32m ]] || [[ $output =~ \[33m ]]; then
+        test_passed
+    else
+        test_failed "Color codes not found in interactive mode output"
+        return
+    fi
+
+    # Test no color output - Direct mode with --no-color flag
+    print_test "No color output - --no-color flag (direct mode)"
     local user_flag=""
     if [[ -n "$TEST_SSH_USER" ]]; then
         user_flag="-u $TEST_SSH_USER"
@@ -232,7 +383,27 @@ test_color_output() {
     if [[ ! $output =~ \[31m ]] && [[ ! $output =~ \[32m ]] && [[ ! $output =~ \[33m ]]; then
         test_passed
     else
-        test_failed "Color codes found in --no-color output"
+        test_failed "Color codes found in --no-color direct mode output"
+        return
+    fi
+
+    # Test no color output - Interactive mode with --no-color flag
+    print_test "No color output - --no-color flag (interactive mode)"
+    user_flag=""
+    if [[ -n "$TEST_SSH_USER" ]]; then
+        user_flag="-u $TEST_SSH_USER"
+    fi
+
+    output=$(timeout "$TEST_SSH_TIMEOUT" bash -c "
+        ./build/gosh $user_flag --no-color $TEST_HOSTS << 'EOF'
+echo test
+exit
+EOF
+" 2>&1 || true)
+    if [[ ! $output =~ \[31m ]] && [[ ! $output =~ \[32m ]] && [[ ! $output =~ \[33m ]]; then
+        test_passed
+    else
+        test_failed "Color codes found in --no-color interactive mode output"
     fi
 }
 

@@ -1,6 +1,6 @@
-# CLAUDE.md
+# AGENTS.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to AI agents when working with code in this repository.
 
 ## Development Commands
 
@@ -17,18 +17,18 @@ Always run `make lint` after making code changes to ensure code quality.
 ## Project Architecture
 
 ### Core Functionality
-`gosh` is a Go-based SSH session manager that executes commands across multiple hosts in parallel. The entire application is contained in `main.go` with supporting tests in `main_test.go`.
+`gosh` is a Go-based SSH session manager that executes commands across multiple hosts in parallel. The main application is in `cmd/main.go` with core functionality in the `pkg/` directory and supporting tests in `pkg/main_test.go`.
 
 ### Key Components
 
 **Command Execution Flow:**
 - `main()` - Parses CLI flags using spf13/pflag library
-- `executeCommand()` - Orchestrates parallel SSH execution using goroutines and sync.WaitGroup
-- `runSSH()` - Handles individual SSH connections using `ssh` command with timeout and batch mode
-- `formatHost()` - Creates colored output prefixes for host identification
+- `ExecuteCommand()` - Orchestrates parallel SSH execution using goroutines and sync.WaitGroup
+- `RunSSH()` - Handles individual SSH connections using `ssh` command with timeout and batch mode
+- `FormatHost()` - Creates colored output prefixes for host identification
 
 **Interactive Mode:**
-- `interactiveMode()` - Provides a REPL-like interface for running commands
+- `InteractiveMode()` - Provides a REPL-like interface for running commands
 - Built-in commands: `help`, `exit`/`quit`
 - All other input is treated as SSH commands to execute on all hosts
 
@@ -44,9 +44,10 @@ Always run `make lint` after making code changes to ensure code quality.
 - All SSH connections run in parallel using goroutines
 
 ### Testing Strategy
-- Unit tests in `main_test.go` for utility functions (`maxLen`, `formatHost`)
+- Unit tests in `pkg/main_test.go` for utility functions (`MaxLen`, `FormatHost`)
 - Integration tests in `test_integration.sh` require `.env` file with `TEST_HOSTS` configuration
 - Integration tests validate real SSH connections and command execution
+- Test keys for local SSH server testing are stored in `test_data/` directory
 
 ### Environment Configuration
 Integration tests require a `.env` file (copy from `.env.example`) with:

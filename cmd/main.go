@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 
+	"github.com/innogames/gosh/pkg"
 	"github.com/spf13/pflag"
 )
 
@@ -31,8 +32,8 @@ func main() {
 	}
 
 	if *command != "" {
-		executeCommand(hosts, *command, *user, *noColor)
+		pkg.ExecuteCommand(hosts, *command, *user, *noColor)
 	} else {
-		interactiveMode(hosts, *user, *noColor)
+		pkg.InteractiveMode(hosts, *user, *noColor)
 	}
 }
