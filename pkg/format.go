@@ -3,7 +3,7 @@ package pkg
 import "fmt"
 
 // Color codes for host prefixes (ANSI code fragments; full sequence built dynamically)
-var Colors = []string{
+var colors = []string{
 	"31m",       // Red
 	"32m",       // Green
 	"33m",       // Yellow
@@ -23,20 +23,22 @@ var Colors = []string{
 	"38;5;120m", // Light Green (256-color)
 }
 
-const Reset = "\033[0m"
+const reset = "\033[0m"
 
-// FormatHost creates a colored/formatted host prefix
-func FormatHost(host string, idx, maxLen int, noColor bool) string {
+// formatHostPrefix creates a colored/formatted host prefix
+func formatHostPrefix(host string, idx, maxLen int, noColor bool) string {
 	padded := fmt.Sprintf("%-*s", maxLen, host)
 	if noColor {
 		return padded
 	}
-	code := Colors[idx%len(Colors)]
-	return "\033[1;" + code + padded + Reset
+
+	code := colors[idx%len(colors)]
+
+	return "\033[1;" + code + padded + reset
 }
 
-// MaxLen returns the length of the longest string
-func MaxLen(strings []string) int {
+// maxLen returns the length of the longest string
+func maxLen(strings []string) int {
 	maxLength := 0
 	for _, s := range strings {
 		if len(s) > maxLength {

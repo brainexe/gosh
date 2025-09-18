@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -15,6 +16,13 @@ import (
 
 	"golang.org/x/crypto/ssh"
 )
+
+// HostStatus represents the connection status of a host
+type HostStatus struct {
+	Host      string
+	Connected bool
+	Error     error
+}
 
 func TestMaxLen(t *testing.T) {
 	tests := []struct {
@@ -28,9 +36,9 @@ func TestMaxLen(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		result := MaxLen(test.input)
+		result := maxLen(test.input)
 		if result != test.expected {
-			t.Errorf("MaxLen(%v) = %d, expected %d", test.input, result, test.expected)
+			t.Errorf("maxLen(%v) = %d, expected %d", test.input, result, test.expected)
 		}
 	}
 }
@@ -57,15 +65,15 @@ func TestFormatHost(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			result := FormatHost(test.host, test.idx, test.maxLen, test.noColor)
+			result := formatHostPrefix(test.host, test.idx, test.maxLen, test.noColor)
 
 			if test.contains != "" && !strings.Contains(result, test.contains) {
-				t.Errorf("FormatHost(%q, %d, %d, %t) = %q, should contain %q",
+				t.Errorf("formatHostPrefix(%q, %d, %d, %t) = %q, should contain %q",
 					test.host, test.idx, test.maxLen, test.noColor, result, test.contains)
 			}
 
 			if test.notContains != "" && strings.Contains(result, test.notContains) {
-				t.Errorf("FormatHost(%q, %d, %d, %t) = %q, should not contain %q",
+				t.Errorf("formatHostPrefix(%q, %d, %d, %t) = %q, should not contain %q",
 					test.host, test.idx, test.maxLen, test.noColor, result, test.notContains)
 			}
 		})
@@ -78,15 +86,15 @@ func TestFormatHostColorCycling(t *testing.T) {
 	maxLen := 10
 	noColor := false
 
-	results := make([]string, len(Colors))
-	for i := range Colors {
-		results[i] = FormatHost(host, i, maxLen, noColor)
+	results := make([]string, len(colors))
+	for i := range colors {
+		results[i] = formatHostPrefix(host, i, maxLen, noColor)
 	}
 
-	// Test that cycling works (index beyond Colors length)
-	cycledResult := FormatHost(host, len(Colors), maxLen, noColor)
+	// Test that cycling works (index beyond colors length)
+	cycledResult := formatHostPrefix(host, len(colors), maxLen, noColor)
 	if cycledResult != results[0] {
-		t.Errorf("Color cycling failed: index %d should match index 0", len(Colors))
+		t.Errorf("Color cycling failed: index %d should match index 0", len(colors))
 	}
 }
 
@@ -360,7 +368,7 @@ func TestUploadFile(t *testing.T) {
 		t.Run(test.name, func(_ *testing.T) {
 			// This test verifies the function doesn't panic and handles file existence
 			// Actual SCP execution is tested in integration tests
-			UploadFile(test.hosts, test.filepath, test.user, test.noColor)
+			uploadFile(test.hosts, test.filepath, test.user, test.noColor)
 		})
 	}
 }
@@ -429,7 +437,7 @@ func TestSSHCommandConstruction(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			// We can't easily test RunSSH directly due to exec.Command,
+			// We can't easily test runSSH directly due to exec.Command,
 			// but we can verify the argument construction logic
 			args := []string{"-o", "ConnectTimeout=5", "-o", "BatchMode=yes"}
 			if test.user != "" {
@@ -506,31 +514,6 @@ func TestSCPCommandConstruction(t *testing.T) {
 				if i >= len(args) || args[i] != expected {
 					t.Errorf("Arg %d: expected %q, got %q", i, expected, args[i])
 				}
-			}
-		})
-	}
-}
-
-func TestCompleter(t *testing.T) {
-	tests := []struct {
-		name     string
-		line     string
-		hosts    []string
-		user     string
-		expected int // number of expected completions (approximate)
-	}{
-		{"empty line", "", []string{"host1"}, "user", 0},
-		{"upload command", ":upload", []string{"host1"}, "user", 1},
-		{"upload with space", ":upload ", []string{"host1"}, "user", 0}, // depends on current dir files
-		{"regular command", "echo", []string{"host1"}, "user", 0},       // depends on SSH response
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			completions := Completer(test.line, test.hosts, test.user)
-			// We can't predict exact completions, but we can test the function doesn't panic
-			if completions == nil {
-				t.Errorf("Completer returned nil, expected slice")
 			}
 		})
 	}
@@ -803,6 +786,295 @@ func TestCustomCompleterDo(t *testing.T) {
 			// completions should be a valid slice (can be empty)
 			if completions == nil {
 				t.Errorf("Expected non-nil completions slice")
+			}
+		})
+	}
+}
+
+func TestSSHConnectionManager(t *testing.T) {
+	tests := []struct {
+		name     string
+		user     string
+		expected bool // expect socket dir creation
+	}{
+		{"with user", "testuser", true},
+		{"without user", "", true},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			cm := NewSSHConnectionManager(test.user)
+
+			if cm == nil {
+				t.Fatal("Expected non-nil SSHConnectionManager")
+			}
+
+			if cm.user != test.user {
+				t.Errorf("Expected user %q, got %q", test.user, cm.user)
+			}
+
+			if cm.connections == nil {
+				t.Error("Expected non-nil connections map")
+			}
+
+			if cm.socketDir == "" {
+				t.Error("Expected non-empty socket directory")
+			}
+
+			// Test socket path generation
+			socketPath := cm.getSocketPath("testhost")
+			expectedPath := filepath.Join(cm.socketDir, "gosh-testhost")
+			if socketPath != expectedPath {
+				t.Errorf("Expected socket path %q, got %q", expectedPath, socketPath)
+			}
+
+			// Clean up
+			cm.cleanupAllConnections()
+		})
+	}
+}
+
+func TestRunCmdWithSeparateOutputExtended(t *testing.T) {
+	tests := []struct {
+		name        string
+		command     string
+		args        []string
+		wantErr     bool
+		checkStdout bool
+	}{
+		{"echo success", "echo", []string{"hello world"}, false, true},
+		{"cat success", "cat", []string{"/dev/null"}, false, false},
+		{"command failure", "false", []string{}, true, false},
+		{"nonexistent command", "nonexistent_command_12345", []string{}, true, false},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			cmd := exec.CommandContext(context.Background(), test.command, test.args...)
+			stdout, stderr, err := runCmdWithSeparateOutput(cmd)
+
+			if test.wantErr && err == nil {
+				t.Errorf("Expected error but got none")
+			}
+			if !test.wantErr && err != nil {
+				t.Errorf("Unexpected error: %v", err)
+			}
+
+			// Check that stdout and stderr are strings (can be empty)
+			if test.checkStdout && stdout == "" && stderr == "" && !test.wantErr {
+				t.Errorf("Expected some output for successful command")
+			}
+		})
+	}
+}
+
+func TestLimitCompletions(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    []string
+		expected []string
+	}{
+		{"empty slice", []string{}, []string{}},
+		{"single item", []string{"item1"}, []string{"item1"}},
+		{"exactly max", make([]string, maxCompletions), make([]string, maxCompletions)},
+		{"over max", make([]string, maxCompletions+5), make([]string, maxCompletions)},
+		{"under max", make([]string, maxCompletions-2), make([]string, maxCompletions-2)},
+	}
+
+	// Initialize the test slices with unique values
+	for i := range tests {
+		for j := range tests[i].input {
+			tests[i].input[j] = fmt.Sprintf("completion%d", j)
+		}
+		for j := range tests[i].expected {
+			tests[i].expected[j] = fmt.Sprintf("completion%d", j)
+		}
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result := limitCompletions(test.input)
+			if len(result) != len(test.expected) {
+				t.Errorf("Expected %d completions, got %d", len(test.expected), len(result))
+			}
+
+			// Check that the beginning of the result matches the expected
+			for i, expected := range test.expected {
+				if i >= len(result) || result[i] != expected {
+					t.Errorf("Result[%d] = %q, expected %q", i, result[i], expected)
+				}
+			}
+		})
+	}
+}
+
+func TestCompleterWithWord(t *testing.T) {
+	hosts := []string{"host1", "host2"}
+	user := "testuser"
+
+	tests := []struct {
+		name         string
+		line         string
+		currentWord  string
+		expectedType string // "internal", "ssh", "empty", "none"
+	}{
+		{"empty line", "", "", "empty"},
+		{"upload command", ":upload", "upload", "internal"},
+		{"upload with file", ":upload test", "test", "internal"},
+		{"help command", ":help", "help", "internal"},
+		{"regular command", "ls", "ls", "ssh"},
+		{"path command", "cd /home", "/home", "ssh"},
+		{"no hosts", "", "", "none"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var testHosts []string
+			if test.expectedType != "none" {
+				testHosts = hosts
+			}
+
+			completions := completerWithWord(test.line, test.currentWord, testHosts, user)
+
+			// completions should be a valid slice (can be nil or empty)
+			// The function may return nil in some error cases
+
+			// For empty input, should return empty slice
+			if test.expectedType == "empty" && completions != nil && len(completions) != 0 {
+				t.Errorf("Expected empty completions for empty input, got %v", completions)
+			}
+
+			// For other cases, just ensure the function doesn't panic and returns something reasonable
+			if test.expectedType == "internal" {
+				t.Logf("Internal command completion returned %d items", len(completions))
+			}
+		})
+	}
+}
+
+func TestGetLocalFileCompletionsExtended(t *testing.T) {
+	// Create a temporary directory for testing
+	tempDir := "/tmp/gosh_test_autocomplete"
+	err := os.MkdirAll(tempDir, 0o755)
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	// Change to temp directory
+	oldDir, _ := os.Getwd()
+	defer os.Chdir(oldDir)
+	os.Chdir(tempDir)
+
+	// Create test files and directories
+	testFiles := []string{"test1.txt", "test2.log", "script.sh"}
+	for _, file := range testFiles {
+		err := os.WriteFile(file, []byte("test content"), 0o600)
+		if err != nil {
+			t.Fatalf("Failed to create test file %s: %v", file, err)
+		}
+	}
+
+	// Create test directory
+	err = os.Mkdir("testdir", 0o755)
+	if err != nil {
+		t.Fatalf("Failed to create test directory: %v", err)
+	}
+
+	tests := []struct {
+		name        string
+		prefix      string
+		expectFiles bool
+	}{
+		{"no prefix", "", true},
+		{"test prefix", "test", true},
+		{"script prefix", "script", true},
+		{"nonexistent prefix", "xyz", false},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			completions := getLocalFileCompletions(test.prefix)
+
+			if test.expectFiles && len(completions) == 0 {
+				t.Errorf("Expected some completions for prefix %q, got none", test.prefix)
+			}
+
+			if !test.expectFiles && len(completions) > 0 {
+				t.Logf("Got unexpected completions for nonexistent prefix: %v", completions)
+			}
+
+			// Verify completions are limited
+			if len(completions) > maxCompletions {
+				t.Errorf("Expected at most %d completions, got %d", maxCompletions, len(completions))
+			}
+
+			// Check that all completions start with the prefix (if prefix is not empty)
+			if test.prefix != "" {
+				for _, completion := range completions {
+					if !strings.HasPrefix(completion, test.prefix) {
+						t.Errorf("Completion %q does not start with prefix %q", completion, test.prefix)
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestPrintProgressBar(t *testing.T) {
+	tests := []struct {
+		name     string
+		current  int
+		total    int
+		width    int
+		expected string // partial expected output
+	}{
+		{"zero progress", 0, 10, 5, "[░░░░░] 0/10"},
+		{"half progress", 5, 10, 5, "[██░░░] 5/10"},
+		{"full progress", 10, 10, 5, "[█████] 10/10"},
+		{"zero total", 0, 0, 5, ""}, // Should not print anything
+		{"single item", 1, 1, 3, "[███] 1/1"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			// Capture stdout
+			oldStdout := os.Stdout
+			r, w, _ := os.Pipe()
+			os.Stdout = w
+
+			printProgressBar(test.current, test.total, test.width)
+
+			// Restore stdout
+			w.Close()
+			os.Stdout = oldStdout
+
+			// Read captured output
+			output, _ := io.ReadAll(r)
+			outputStr := string(output)
+
+			if test.total == 0 {
+				if outputStr != "" {
+					t.Errorf("Expected no output for zero total, got %q", outputStr)
+				}
+				return
+			}
+
+			// Check that the output contains expected elements
+			if !strings.Contains(outputStr, test.expected) {
+				t.Errorf("Expected output to contain %q, got %q", test.expected, outputStr)
+			}
+
+			// Check for progress bar characters
+			if !strings.Contains(outputStr, "[") || !strings.Contains(outputStr, "]") {
+				t.Errorf("Expected output to contain progress bar brackets, got %q", outputStr)
+			}
+
+			// For completed progress, should have newline
+			if test.current == test.total && test.total > 0 {
+				if !strings.HasSuffix(outputStr, "\n") {
+					t.Errorf("Expected output to end with newline for completed progress, got %q", outputStr)
+				}
 			}
 		})
 	}

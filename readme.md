@@ -87,9 +87,10 @@ gosh -v -c "uptime && free -h" prod{01..10}
 
 ## Interactive Commands
 
-- `help` - Show available commands
-- `exit`/`quit` - Exit interactive mode
 - `:upload <file>` - Upload file to all connected hosts
+- `:hosts` - List all connected hosts
+- `:help` - Show available commands
+- `:exit`/`:quit` - Exit interactive mode
 - `<command>` - Execute any command on all hosts
 
 ## Options

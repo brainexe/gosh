@@ -1,13 +1,21 @@
 package pkg
 
 import (
+	"bytes"
 	"context"
-	"fmt"
-	"os"
 	"os/exec"
 	"strings"
-	"time"
 )
+
+const maxCompletions = 10
+
+// limitCompletions limits the number of completions to a maximum of 10
+func limitCompletions(completions []string) []string {
+	if len(completions) > maxCompletions {
+		return completions[:maxCompletions]
+	}
+	return completions
+}
 
 // customCompleter implements readline.AutoCompleter interface
 type customCompleter struct {
@@ -36,149 +44,111 @@ func (c *customCompleter) Do(line []rune, pos int) ([][]rune, int) {
 	// Extract the current word being completed
 	currentWord := string(line[wordStart:pos])
 
-	// Get completions using our existing logic
-	completions := Completer(lineStr, c.hosts, c.user)
-
-	// Filter and process completions
-	var filtered []string
-	for _, completion := range completions {
-		completion = strings.TrimSpace(completion)
-		if completion == "" || completion == "." || completion == ".." {
-			continue
-		}
-
-		// For file completions, we need to handle the path properly
-		// Both path and simple completions use the same suffix extraction logic
-		if strings.HasPrefix(completion, currentWord) {
-			// Extract only the part that should be appended
-			// For currentWord="/v" and completion="/var", we want "ar"
-			// For currentWord="l" and completion="ls", we want "s"
-			suffix := completion[len(currentWord):]
-			filtered = append(filtered, suffix)
-		}
-	}
+	// Get completions using our logic - pass both line and current word
+	completions := completerWithWord(lineStr, currentWord, c.hosts, c.user)
+	completions = limitCompletions(completions)
 
 	// Convert completions back to rune slices
-	result := make([][]rune, len(filtered))
-	for i, completion := range filtered {
+	result := make([][]rune, len(completions))
+	for i, completion := range completions {
 		result[i] = []rune(completion)
 	}
 
-	// Return completions and the position where the word starts
 	return result, wordStart
 }
 
-// getSSHCompletions gets completion suggestions from the first host using SSH
-func getSSHCompletions(line string, hosts []string, user string) []string {
-	if len(hosts) == 0 {
+// getLocalFileCompletions gets file completions from current directory (used in :upload only)
+func getLocalFileCompletions(prefix string) []string {
+	cmd := exec.Command("bash", "-c", "compgen -f "+prefix)
+	output, err := cmd.Output()
+	if err != nil {
 		return []string{}
 	}
 
-	// Use the first host for completion
-	host := hosts[0]
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	var completions []string
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line != "" && line != "." && line != ".." {
+			// Check if it's a directory and add trailing slash
+			if strings.HasSuffix(line, "/") {
+				// Already has trailing slash
+				completions = append(completions, line)
+			} else {
+				// Check if it's a directory by running test -d
+				testCmd := exec.Command("bash", "-c", "test -d '"+line+"' && echo 'dir' || echo 'file'")
+				testOutput, testErr := testCmd.Output()
+				if testErr == nil && strings.TrimSpace(string(testOutput)) == "dir" {
+					completions = append(completions, line+"/")
+				} else {
+					completions = append(completions, line)
+				}
+			}
+		}
+	}
+	return limitCompletions(completions)
+}
 
-	// Extract the word being completed
-	words := strings.Fields(line)
-	if len(words) == 0 {
+// getSSHCompletions runs completion command on the first host
+func getSSHCompletions(word string, firstHost string, user string) []string {
+	if firstHost == "" {
 		return []string{}
 	}
 
-	// Get the last word for completion
-	lastWord := ""
-	if !strings.HasSuffix(line, " ") {
-		lastWord = words[len(words)-1]
-	}
+	var args []string
+	args = append(args, "-o", "ConnectTimeout=5", "-o", "BatchMode=yes")
 
-	// Prepare SSH command to get completions
-	args := []string{"-o", "ConnectTimeout=2", "-o", "BatchMode=yes"}
 	if user != "" {
 		args = append(args, "-l", user)
 	}
 
-	// Create a more sophisticated completion command
-	var compCommand string
-	if len(words) == 1 && !strings.HasSuffix(line, " ") {
-		// Completing command name - use which and ls /usr/bin as fallback
-		compCommand = fmt.Sprintf("(which %s* 2>/dev/null; ls /usr/bin/%s* /bin/%s* 2>/dev/null | head -10) | sort -u | head -20", lastWord, lastWord, lastWord)
-	} else {
-		// Completing file/directory names - use ls with glob pattern
-		dir := "."
-		pattern := lastWord
-		if strings.Contains(lastWord, "/") {
-			parts := strings.Split(lastWord, "/")
-			if len(parts) > 1 {
-				dir = strings.Join(parts[:len(parts)-1], "/")
-				if dir == "" {
-					dir = "/"
-				}
-				pattern = parts[len(parts)-1]
-			}
-		}
+	args = append(args, firstHost)
 
-		// Build the correct completion command
-		if pattern == "" {
-			compCommand = fmt.Sprintf("ls -1a '%s'/ 2>/dev/null | head -20", dir)
-		} else {
-			// Use find to get files/directories that start with pattern
-			if dir == "/" {
-				compCommand = fmt.Sprintf("find / -maxdepth 1 -name '%s*' 2>/dev/null | head -20", pattern)
-			} else {
-				compCommand = fmt.Sprintf("find '%s' -maxdepth 1 -name '%s*' 2>/dev/null | head -20", dir, pattern)
-			}
-		}
+	// Build compgen command to run on remote host
+	var compgenCmd string
+	switch {
+	case word == "":
+		compgenCmd = "compgen -c"
+	case strings.Contains(word, "/"):
+		// Handle path completion
+		compgenCmd = "compgen -d '" + word + "' || compgen -f '" + word + "'"
+	default:
+		// Try command completion first, then file completion
+		compgenCmd = "compgen -c '" + word + "' || compgen -f '" + word + "'"
 	}
 
-	args = append(args, host, compCommand)
+	args = append(args, compgenCmd)
 
-	// Create context with timeout
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
+	// todo use cached connection!
+	cmd := exec.CommandContext(context.Background(), "ssh", args...)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
 
-	cmd := exec.CommandContext(ctx, "ssh", args...)
-	output, err := cmd.CombinedOutput()
+	err := cmd.Run()
 	if err != nil {
 		return []string{}
 	}
 
-	// Parse the output and return as suggestions
-	completions := []string{}
-	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
-	for _, completion := range lines {
-		completion = strings.TrimSpace(completion)
-		if completion != "" {
-			completions = append(completions, completion)
-		}
+	output := strings.TrimSpace(stdout.String())
+	if output == "" {
+		return []string{}
 	}
 
-	return completions
-}
-
-// getLocalFileCompletions gets file completions from current directory
-func getLocalFileCompletions(prefix string) []string {
+	lines := strings.Split(output, "\n")
 	var completions []string
-
-	// Get current directory files
-	files, err := os.ReadDir(".")
-	if err != nil {
-		return completions
-	}
-
-	for _, file := range files {
-		name := file.Name()
-		if strings.HasPrefix(name, prefix) {
-			if file.IsDir() {
-				completions = append(completions, name+"/")
-			} else {
-				completions = append(completions, name)
-			}
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line != "" && line != "." && line != ".." {
+			completions = append(completions, line)
 		}
 	}
 
 	return completions
 }
 
-// Completer handles tab completion for the interactive mode
-func Completer(line string, hosts []string, user string) []string {
+// completerWithWord handles tab completion with proper word-based logic
+func completerWithWord(line string, currentWord string, hosts []string, user string) []string {
 	if line == "" {
 		return []string{}
 	}
@@ -190,21 +160,70 @@ func Completer(line string, hosts []string, user string) []string {
 			parts := strings.SplitN(line, " ", 2)
 			if len(parts) == 2 {
 				prefix := parts[1]
-				return getLocalFileCompletions(prefix)
+				// Get all matching files
+				cmd := exec.Command("bash", "-c", "compgen -f "+prefix)
+				output, err := cmd.Output()
+				if err != nil {
+					return []string{}
+				}
+
+				lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+				var completions []string
+				for _, line := range lines {
+					line = strings.TrimSpace(line)
+					if line != "" && line != "." && line != ".." {
+						// For internal commands, return the suffix that should be appended
+						if strings.HasPrefix(line, prefix) {
+							suffix := line[len(prefix):]
+							if suffix != "" {
+								completions = append(completions, suffix)
+							}
+						}
+					}
+				}
+				return completions
 			}
-			return getLocalFileCompletions("")
+			// Empty prefix - return all files as full names
+			cmd := exec.CommandContext(context.Background(), "bash", "-c", "compgen -f")
+			output, err := cmd.Output()
+			if err != nil {
+				return []string{}
+			}
+			return strings.Split(strings.TrimSpace(string(output)), "\n")
 		}
-		// Complete internal commands
-		commands := []string{":upload"}
+
+		// Complete internal commands - return suffixes
+		commands := []string{":upload", ":exit", ":help", ":hosts", ":verbose"}
 		var matches []string
 		for _, cmd := range commands {
-			if strings.HasPrefix(cmd, line) {
-				matches = append(matches, cmd+" ")
+			if strings.HasPrefix(cmd, currentWord) {
+				suffix := cmd[len(currentWord):]
+				if suffix != "" {
+					matches = append(matches, suffix+" ")
+				}
 			}
 		}
 		return matches
 	}
 
-	// For regular commands, get completions from first host
-	return getSSHCompletions(line, hosts, user)
+	// If no hosts are available, don't provide completions
+	if len(hosts) == 0 {
+		return []string{}
+	}
+
+	// For regular commands, use SSH completion on the first host
+	sshCompletions := getSSHCompletions(currentWord, hosts[0], user)
+
+	// For all completions (commands and paths), return suffixes as expected by readline
+	var filteredCompletions []string
+	for _, completion := range sshCompletions {
+		if strings.HasPrefix(completion, currentWord) {
+			suffix := completion[len(currentWord):]
+			if suffix != "" {
+				filteredCompletions = append(filteredCompletions, suffix)
+			}
+		}
+	}
+
+	return filteredCompletions
 }

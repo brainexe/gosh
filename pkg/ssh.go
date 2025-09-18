@@ -1,6 +1,7 @@
 package pkg
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"fmt"
@@ -9,15 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"time"
 )
-
-// HostStatus represents the connection status of a host
-type HostStatus struct {
-	Host      string
-	Connected bool
-	Error     error
-}
 
 // runCmdWithSeparateOutput runs a command and returns stdout, stderr, and error separately
 func runCmdWithSeparateOutput(cmd *exec.Cmd) (string, string, error) {
@@ -31,7 +24,7 @@ func runCmdWithSeparateOutput(cmd *exec.Cmd) (string, string, error) {
 
 // SSHConnectionManager manages persistent SSH connections using ControlMaster
 type SSHConnectionManager struct {
-	mu          sync.RWMutex
+	mu          sync.Mutex
 	connections map[string]*SSHConnection
 	socketDir   string
 	user        string
@@ -42,7 +35,6 @@ type SSHConnection struct {
 	host       string
 	socketPath string
 	connected  bool
-	lastUsed   time.Time
 }
 
 // NewSSHConnectionManager creates a new connection manager
@@ -67,21 +59,7 @@ func (cm *SSHConnectionManager) getSocketPath(host string) string {
 
 // establishConnection establishes a persistent SSH connection to a host
 func (cm *SSHConnectionManager) establishConnection(host string) error {
-	// cm.mu.Lock()
-	// defer cm.mu.Unlock()
-
 	socketPath := cm.getSocketPath(host)
-
-	// Check if connection already exists and is recent
-	if conn, exists := cm.connections[host]; exists && conn.connected {
-		// Test if the connection is still alive
-		if time.Since(conn.lastUsed) < 5*time.Minute {
-			conn.lastUsed = time.Now()
-			return nil
-		}
-		// Clean up old connection
-		cm.cleanupConnection(host)
-	}
 
 	// Establish new connection
 	args := []string{
@@ -90,7 +68,6 @@ func (cm *SSHConnectionManager) establishConnection(host string) error {
 		"-o", "ControlPersist=10m", // Keep connection alive for 10 minutes
 		"-o", "ConnectTimeout=5",
 		"-o", "BatchMode=yes",
-		"-o", "StrictHostKeyChecking=no",
 		"-f", // Go to background after establishing connection
 	}
 
@@ -106,25 +83,19 @@ func (cm *SSHConnectionManager) establishConnection(host string) error {
 	}
 
 	// Store connection info
+	cm.mu.Lock()
 	cm.connections[host] = &SSHConnection{
 		host:       host,
 		socketPath: socketPath,
 		connected:  true,
-		lastUsed:   time.Now(),
 	}
+	cm.mu.Unlock()
 
 	return nil
 }
 
-// RunSSHPersistent executes SSH command using persistent connection
-func (cm *SSHConnectionManager) RunSSHPersistent(host, command string, idx, maxHostLen int, noColor bool) {
-	// Ensure connection exists
-	if err := cm.establishConnection(host); err != nil {
-		prefix := FormatHost(host, idx, maxHostLen, noColor)
-		fmt.Printf("%s: ERROR: %v\n", prefix, err)
-		return
-	}
-
+// runSSHPersistentStreaming executes SSH command using persistent connection with real-time streaming output and context cancellation
+func (cm *SSHConnectionManager) runSSHPersistentStreaming(ctx context.Context, host, command string, idx, maxHostLen int, noColor bool) {
 	socketPath := cm.getSocketPath(host)
 
 	args := []string{
@@ -137,42 +108,68 @@ func (cm *SSHConnectionManager) RunSSHPersistent(host, command string, idx, maxH
 	}
 
 	args = append(args, host, command)
-	cmd := exec.CommandContext(context.Background(), "ssh", args...)
+	cmd := exec.CommandContext(ctx, "ssh", args...)
 
-	stdout, stderr, err := runCmdWithSeparateOutput(cmd)
-	prefix := FormatHost(host, idx, maxHostLen, noColor)
-
-	// Update last used time
-	cm.mu.Lock()
-	if conn, exists := cm.connections[host]; exists {
-		conn.lastUsed = time.Now()
-	}
-	cm.mu.Unlock()
-
-	// Display stdout if present
-	if len(stdout) > 0 {
-		lines := strings.Split(strings.TrimRight(stdout, "\n"), "\n")
-		for _, line := range lines {
-			if line != "" {
-				fmt.Printf("%s: %s\n", prefix, line)
-			}
-		}
-	}
-
-	// Display stderr if present
-	if len(stderr) > 0 {
-		lines := strings.Split(strings.TrimRight(stderr, "\n"), "\n")
-		for _, line := range lines {
-			if line != "" {
-				fmt.Printf("%s: %s\n", prefix, line)
-			}
-		}
-	}
-
-	// Display error status if command failed
+	// Get stdout and stderr pipes
+	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		fmt.Printf("%s: ERROR: %v\n", prefix, err)
+		prefix := formatHostPrefix(host, idx, maxHostLen, noColor)
+		fmt.Printf("%s: ERROR: Failed to get stdout pipe: %v\n", prefix, err)
+		return
 	}
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		prefix := formatHostPrefix(host, idx, maxHostLen, noColor)
+		fmt.Printf("%s: ERROR: Failed to get stderr pipe: %v\n", prefix, err)
+		return
+	}
+
+	prefix := formatHostPrefix(host, idx, maxHostLen, noColor)
+
+	// Start goroutines to read and display output in real-time
+	var wg sync.WaitGroup
+	// Handle stdout
+	wg.Go(func() {
+		scanner := bufio.NewScanner(stdout)
+		for scanner.Scan() {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				line := scanner.Text()
+				fmt.Printf("%s: %s\n", prefix, line)
+			}
+		}
+	})
+
+	// Handle stderr
+	wg.Go(func() {
+		scanner := bufio.NewScanner(stderr)
+		for scanner.Scan() {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				line := scanner.Text()
+				fmt.Printf("%s: %s\n", prefix, line)
+			}
+		}
+	})
+
+	// Start the command
+	if err := cmd.Start(); err != nil {
+		fmt.Printf("%s: ERROR: Failed to start command: %v\n", prefix, err)
+		return
+	}
+
+	// Wait for command to complete and output readers to finish
+	if err := cmd.Wait(); err != nil {
+		// Only show error if context wasn't cancelled
+		if ctx.Err() == nil {
+			fmt.Printf("%s: ERROR: Command failed: %v\n", prefix, err)
+		}
+	}
+	wg.Wait()
 }
 
 // cleanupConnection closes a persistent SSH connection
@@ -192,8 +189,8 @@ func (cm *SSHConnectionManager) cleanupConnection(host string) {
 	}
 }
 
-// CleanupAllConnections closes all persistent SSH connections
-func (cm *SSHConnectionManager) CleanupAllConnections() {
+// cleanupAllConnections closes all persistent SSH connections
+func (cm *SSHConnectionManager) cleanupAllConnections() {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 
@@ -202,45 +199,5 @@ func (cm *SSHConnectionManager) CleanupAllConnections() {
 	}
 
 	// Remove socket directory
-	os.RemoveAll(cm.socketDir)
-}
-
-// RunSSH executes SSH command for a single host (legacy function for backward compatibility)
-func RunSSH(host, command, user string, idx, maxHostLen int, noColor bool) {
-	args := []string{"-o", "ConnectTimeout=5", "-o", "BatchMode=yes"}
-
-	if user != "" {
-		args = append(args, "-l", user)
-	}
-
-	args = append(args, host, command)
-	cmd := exec.CommandContext(context.Background(), "ssh", args...)
-
-	stdout, stderr, err := runCmdWithSeparateOutput(cmd)
-	prefix := FormatHost(host, idx, maxHostLen, noColor)
-
-	// Display stdout if present
-	if len(stdout) > 0 {
-		lines := strings.Split(strings.TrimRight(stdout, "\n"), "\n")
-		for _, line := range lines {
-			if line != "" {
-				fmt.Printf("%s: %s\n", prefix, line)
-			}
-		}
-	}
-
-	// Display stderr if present
-	if len(stderr) > 0 {
-		lines := strings.Split(strings.TrimRight(stderr, "\n"), "\n")
-		for _, line := range lines {
-			if line != "" {
-				fmt.Printf("%s: %s\n", prefix, line)
-			}
-		}
-	}
-
-	// Display error status if command failed
-	if err != nil {
-		fmt.Printf("%s: ERROR: %v\n", prefix, err)
-	}
+	_ = os.RemoveAll(cm.socketDir)
 }
