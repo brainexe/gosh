@@ -23,6 +23,20 @@ func ExecuteCommand(hosts []string, command, user string, noColor bool) {
 	wg.Wait()
 }
 
+// ExecuteCommandPersistent runs a command on all hosts using persistent SSH connections
+func ExecuteCommandPersistent(cm *SSHConnectionManager, hosts []string, command string, noColor bool) {
+	maxHostLen := MaxLen(hosts)
+	var wg sync.WaitGroup
+
+	for i, host := range hosts {
+		wg.Go(func() {
+			cm.RunSSHPersistent(host, command, i, maxHostLen, noColor)
+		})
+	}
+
+	wg.Wait()
+}
+
 // UploadFile uploads a file to all hosts in parallel
 func UploadFile(hosts []string, filepath, user string, noColor bool) {
 	// Check if local file exists
