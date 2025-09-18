@@ -1,4 +1,4 @@
-module github.com/innogames/gosh
+module github.com/brainexe/gosh
 
 go 1.25.0
 

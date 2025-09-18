@@ -15,7 +15,7 @@ jobs:
 
     strategy:
       matrix:
-        go-version: [1.24.x, 1.25.x]
+        go-version: [1.25.x]
         os: [ubuntu-latest]
         platform:
           - linux/amd64
@@ -38,6 +38,6 @@ jobs:
         run: make test
 
       - name: Run GoLand CI linters
-        uses: golangci/golangci-lint-action@v4
+        uses: golangci/golangci-lint-action@v8
         with:
-          args: --out-format=colored-line-number
+          version: latest

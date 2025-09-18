@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"context"
 	"fmt"
-	"log"
 	"os"
 	"os/exec"
 	"strings"
@@ -48,12 +47,8 @@ func (c *customCompleter) Do(line []rune, pos int) ([][]rune, int) {
 	// Extract the current word being completed
 	currentWord := string(line[wordStart:pos])
 
-	// Debug logging
-	log.Printf("[DEBUG] Tab completion: line='%s', pos=%d, currentWord='%s', wordStart=%d", lineStr, pos, currentWord, wordStart)
-
 	// Get completions using our existing logic
 	completions := Completer(lineStr, c.hosts, c.user)
-	log.Printf("[DEBUG] Got %d raw completions: %v", len(completions), completions)
 
 	// Filter and process completions
 	var filtered []string
@@ -64,23 +59,13 @@ func (c *customCompleter) Do(line []rune, pos int) ([][]rune, int) {
 		}
 
 		// For file completions, we need to handle the path properly
-		if strings.Contains(currentWord, "/") {
-			// For paths like "/v", we expect completions like "/var", "/vagrant", etc.
-			// readline expects only the suffix that completes the current word
-			if strings.HasPrefix(completion, currentWord) {
-				// Extract only the part that should be appended
-				// For currentWord="/v" and completion="/var", we want "ar"
-				suffix := completion[len(currentWord):]
-				filtered = append(filtered, suffix)
-			}
-		} else {
-			// For simple completions (like command names), extract suffix
-			if strings.HasPrefix(completion, currentWord) {
-				// Extract only the part that should be appended
-				// For currentWord="l" and completion="ls", we want "s"
-				suffix := completion[len(currentWord):]
-				filtered = append(filtered, suffix)
-			}
+		// Both path and simple completions use the same suffix extraction logic
+		if strings.HasPrefix(completion, currentWord) {
+			// Extract only the part that should be appended
+			// For currentWord="/v" and completion="/var", we want "ar"
+			// For currentWord="l" and completion="ls", we want "s"
+			suffix := completion[len(currentWord):]
+			filtered = append(filtered, suffix)
 		}
 	}
 
@@ -90,7 +75,6 @@ func (c *customCompleter) Do(line []rune, pos int) ([][]rune, int) {
 		result[i] = []rune(completion)
 	}
 
-	log.Printf("[DEBUG] Returning %d filtered completions: %v, wordStart=%d", len(filtered), filtered, wordStart)
 	// Return completions and the position where the word starts
 	return result, wordStart
 }
@@ -103,7 +87,6 @@ func getSSHCompletions(line string, hosts []string, user string) []string {
 
 	// Use the first host for completion
 	host := hosts[0]
-	log.Printf("[DEBUG] Using host '%s' for completion (first of %d hosts)", host, len(hosts))
 
 	// Extract the word being completed
 	words := strings.Fields(line)
@@ -143,8 +126,6 @@ func getSSHCompletions(line string, hosts []string, user string) []string {
 			}
 		}
 
-		log.Printf("[DEBUG] Parsed path: dir='%s', pattern='%s' from lastWord='%s'", dir, pattern, lastWord)
-
 		// Build the correct completion command
 		if pattern == "" {
 			compCommand = fmt.Sprintf("ls -1a '%s'/ 2>/dev/null | head -20", dir)
@@ -160,21 +141,15 @@ func getSSHCompletions(line string, hosts []string, user string) []string {
 
 	args = append(args, host, compCommand)
 
-	log.Printf("[DEBUG] SSH completion command: ssh %v", args)
-
 	// Create context with timeout
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, "ssh", args...)
 	output, err := cmd.CombinedOutput()
-
 	if err != nil {
-		log.Printf("[DEBUG] SSH completion failed: %v", err)
 		return []string{}
 	}
-
-	//	log.Printf("[DEBUG] SSH completion output: %s", string(output))
 
 	// Parse the output and return as suggestions
 	completions := []string{}

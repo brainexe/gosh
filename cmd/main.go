@@ -6,7 +6,7 @@ import (
 	"log"
 	"os"
 
-	"github.com/innogames/gosh/pkg"
+	"github.com/brainexe/gosh/pkg"
 	"github.com/spf13/pflag"
 )
 

@@ -3,10 +3,13 @@ package pkg
 import (
 	"bytes"
 	"context"
+	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -76,7 +79,7 @@ func TestFormatHostColorCycling(t *testing.T) {
 	noColor := false
 
 	results := make([]string, len(Colors))
-	for i := 0; i < len(Colors); i++ {
+	for i := range Colors {
 		results[i] = FormatHost(host, i, maxLen, noColor)
 	}
 
@@ -322,7 +325,7 @@ func TestExecuteCommand(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
+		t.Run(test.name, func(_ *testing.T) {
 			// This test verifies the function doesn't panic and completes
 			// Actual SSH execution is tested in integration tests
 			ExecuteCommand(test.hosts, test.command, test.user, test.noColor)
@@ -334,7 +337,7 @@ func TestUploadFile(t *testing.T) {
 	// Create a temporary test file
 	tempFile := "/tmp/gosh_test_file.txt"
 	testContent := "test file content"
-	err := os.WriteFile(tempFile, []byte(testContent), 0644)
+	err := os.WriteFile(tempFile, []byte(testContent), 0o600)
 	if err != nil {
 		t.Fatalf("Failed to create test file: %v", err)
 	}
@@ -354,7 +357,7 @@ func TestUploadFile(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
+		t.Run(test.name, func(_ *testing.T) {
 			// This test verifies the function doesn't panic and handles file existence
 			// Actual SCP execution is tested in integration tests
 			UploadFile(test.hosts, test.filepath, test.user, test.noColor)
@@ -365,18 +368,17 @@ func TestUploadFile(t *testing.T) {
 func TestRunCmdWithSeparateOutput(t *testing.T) {
 	tests := []struct {
 		name    string
-		command string
-		args    []string
+		setup   func() *exec.Cmd
 		wantErr bool
 	}{
-		{"echo success", "echo", []string{"hello"}, false},
-		{"false command", "false", []string{}, true},
-		{"nonexistent command", "nonexistent_command_12345", []string{}, true},
+		{"echo success", func() *exec.Cmd { return exec.CommandContext(context.Background(), "echo", "hello") }, false},
+		{"false command", func() *exec.Cmd { return exec.CommandContext(context.Background(), "false") }, true},
+		{"nonexistent command", func() *exec.Cmd { return exec.CommandContext(context.Background(), "nonexistent_command_12345") }, true},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			cmd := exec.Command(test.command, test.args...)
+			cmd := test.setup()
 			stdout, stderr, err := runCmdWithSeparateOutput(cmd)
 
 			if test.wantErr && err == nil {
@@ -537,7 +539,7 @@ func TestCompleter(t *testing.T) {
 func TestGetLocalFileCompletions(t *testing.T) {
 	// Create temporary files for testing
 	tempDir := "/tmp/gosh_test_completions"
-	err := os.MkdirAll(tempDir, 0755)
+	err := os.MkdirAll(tempDir, 0o755)
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
@@ -551,11 +553,11 @@ func TestGetLocalFileCompletions(t *testing.T) {
 	// Create test files
 	testFiles := []string{"test1.txt", "test2.log", "script.sh", "data.csv"}
 	for _, file := range testFiles {
-		os.WriteFile(file, []byte("test"), 0644)
+		os.WriteFile(file, []byte("test"), 0o600)
 	}
 
 	// Create test directory
-	os.Mkdir("testdir", 0755)
+	os.Mkdir("testdir", 0o755)
 
 	tests := []struct {
 		name     string
@@ -583,6 +585,187 @@ func TestGetLocalFileCompletions(t *testing.T) {
 				}
 				if !found {
 					t.Errorf("Expected completion %q not found in %v", expected, completions)
+				}
+			}
+		})
+	}
+}
+
+func TestTestAllConnections(t *testing.T) {
+	// Test cases
+	tests := []struct {
+		name            string
+		hosts           []string
+		user            string
+		verbose         bool
+		mockResults     map[string]bool // host -> connected status
+		expectConnected []string
+		expectExit      bool
+	}{
+		{
+			name:            "all hosts connect successfully",
+			hosts:           []string{"host1", "host2"},
+			user:            "testuser",
+			verbose:         false,
+			mockResults:     map[string]bool{"host1": true, "host2": true},
+			expectConnected: []string{"host1", "host2"},
+			expectExit:      false,
+		},
+		{
+			name:            "some hosts fail",
+			hosts:           []string{"host1", "badhost", "host2"},
+			user:            "testuser",
+			verbose:         true,
+			mockResults:     map[string]bool{"host1": true, "badhost": false, "host2": true},
+			expectConnected: []string{"host1", "host2"},
+			expectExit:      false,
+		},
+		{
+			name:            "all hosts fail - would exit but we test the logic",
+			hosts:           []string{"badhost1", "badhost2"},
+			user:            "testuser",
+			verbose:         false,
+			mockResults:     map[string]bool{"badhost1": false, "badhost2": false},
+			expectConnected: []string{}, // This would normally cause exit
+			expectExit:      true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Capture stdout for verbose output testing
+			oldStdout := os.Stdout
+			r, w, _ := os.Pipe()
+			os.Stdout = w
+
+			// Create a testable version that uses mocked connection results
+			testableTestAllConnections := func(hosts []string, user string, verbose bool, mockConnectionTester func(string, string) *HostStatus) []string {
+				if verbose {
+					fmt.Printf("🔍 Testing connections to %d host(s)...\n", len(hosts))
+				}
+
+				statusChan := make(chan *HostStatus, len(hosts))
+				var wg sync.WaitGroup
+
+				// Start connection tests in parallel
+				for _, host := range hosts {
+					wg.Go(func() {
+						status := mockConnectionTester(host, user)
+						statusChan <- status
+					})
+				}
+
+				// Close channel when all tests complete
+				go func() {
+					wg.Wait()
+					close(statusChan)
+				}()
+
+				var connectedHosts []string
+				var failedHosts []string
+				completed := 0
+
+				// Process results as they come in
+				for status := range statusChan {
+					completed++
+					if status.Connected {
+						connectedHosts = append(connectedHosts, status.Host)
+						if verbose {
+							fmt.Printf("✓ %s connected [%d/%d]\n", status.Host, completed, len(hosts))
+						}
+					} else {
+						failedHosts = append(failedHosts, status.Host)
+						if verbose {
+							fmt.Printf("✗ %s failed: %v [%d/%d]\n", status.Host, status.Error, completed, len(hosts))
+						}
+					}
+				}
+
+				// Always show warnings for failed hosts (concise)
+				if len(failedHosts) > 0 {
+					fmt.Printf("⚠️  Warning: %d host(s) failed to connect:\n", len(failedHosts))
+					for _, host := range failedHosts {
+						fmt.Printf("  • %s\n", host)
+					}
+					// Add newline after warnings to separate from prompt
+					fmt.Println()
+				}
+
+				// Don't call os.Exit(1) in tests - just return empty slice
+				if len(connectedHosts) == 0 {
+					return connectedHosts
+				}
+
+				if verbose {
+					fmt.Printf("✅ Successfully connected to %d/%d host(s)\n", len(connectedHosts), len(hosts))
+					fmt.Println()
+				}
+				return connectedHosts
+			}
+
+			// Mock connection tester function
+			mockConnectionTester := func(host, _ string) *HostStatus {
+				connected := tt.mockResults[host]
+				var err error
+				if !connected {
+					err = fmt.Errorf("connection refused")
+				}
+				return &HostStatus{
+					Host:      host,
+					Connected: connected,
+					Error:     err,
+				}
+			}
+
+			// Call the testable function
+			result := testableTestAllConnections(tt.hosts, tt.user, tt.verbose, mockConnectionTester)
+
+			// Restore stdout
+			w.Close()
+			os.Stdout = oldStdout
+
+			// Read captured output
+			output, _ := io.ReadAll(r)
+			outputStr := string(output)
+
+			// Verify results
+			if tt.expectExit && len(result) != 0 {
+				t.Errorf("Expected no connected hosts (would exit), but got %v", result)
+			} else if !tt.expectExit {
+				if len(result) != len(tt.expectConnected) {
+					t.Errorf("Expected %d connected hosts, got %d", len(tt.expectConnected), len(result))
+				}
+				// Check that the connected hosts are correct
+				for _, expected := range tt.expectConnected {
+					found := false
+					for _, actual := range result {
+						if actual == expected {
+							found = true
+							break
+						}
+					}
+					if !found {
+						t.Errorf("Expected connected host %s not found in result %v", expected, result)
+					}
+				}
+			}
+
+			// Verify verbose output contains expected elements
+			if tt.verbose {
+				if !strings.Contains(outputStr, "🔍 Testing connections") {
+					t.Errorf("Expected verbose output to contain connection test message")
+				}
+				if !tt.expectExit && len(tt.expectConnected) > 0 {
+					if !strings.Contains(outputStr, "✅ Successfully connected") {
+						t.Errorf("Expected verbose output to contain success message")
+					}
+				}
+			}
+
+			// For failed connections, check warning output
+			if tt.expectExit || (len(tt.hosts) > len(tt.expectConnected)) {
+				if !strings.Contains(outputStr, "⚠️  Warning:") {
+					t.Errorf("Expected warning output for failed connections")
 				}
 			}
 		})

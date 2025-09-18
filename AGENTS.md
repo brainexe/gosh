@@ -12,7 +12,7 @@ This file provides guidance to AI agents when working with code in this reposito
 - **Clean**: `make clean` - Removes build artifacts
 - **Full build**: `make all` - Runs test, lint, and build in sequence
 
-Always run `make lint` after making code changes to ensure code quality.
+Always run `make` after making code changes to ensure code quality and stability.
 
 ## Project Architecture
 
