@@ -13,14 +13,17 @@ build:
 
 test:
 	@echo "Running tests..."
+	@go generate ./pkg
 	@go test -mod=mod ./...
 
 test-race:
 	@echo "Running tests with race detection..."
+	@go generate ./pkg
 	@go test -mod=mod -race -v ./...
 
 test-coverage:
 	@echo "Running tests with coverage..."
+	@go generate ./pkg
 	@mkdir -p $(BUILD_DIR)
 	@go test -mod=mod -coverprofile=$(BUILD_DIR)/coverage.out ./...
 	@go tool cover -html=$(BUILD_DIR)/coverage.out -o $(BUILD_DIR)/cover.html

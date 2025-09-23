@@ -47,7 +47,8 @@ Always run `make` after making code changes to ensure code quality and stability
 - Unit tests in `pkg/main_test.go` for utility functions (`MaxLen`, `FormatHost`)
 - Integration tests in `test_integration.sh` require `.env` file with `TEST_HOSTS` configuration
 - Integration tests validate real SSH connections and command execution
-- Test keys for local SSH server testing are stored in `test_data/` directory
+- Test keys for local SSH server testing are auto-generated via `//go:generate` (run `go generate ./pkg` to create them)
+- Generated test keys are stored in `pkg/test_keys/` and excluded from git via `.gitignore`
 
 ### Environment Configuration
 Integration tests require a `.env` file (copy from `.env.example`) with:

@@ -18,7 +18,7 @@ func executeCommandStreaming(ctx context.Context, cm *SSHConnectionManager, host
 
 	for i, host := range hosts {
 		wg.Go(func() {
-			cm.runSSHPersistentStreaming(ctx, host, command, i, maxHostLen, noColor)
+			cm.runSSHStreaming(ctx, host, command, i, maxHostLen, noColor)
 		})
 	}
 

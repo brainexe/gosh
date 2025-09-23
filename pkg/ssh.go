@@ -34,7 +34,6 @@ type SSHConnectionManager struct {
 type SSHConnection struct {
 	host       string
 	socketPath string
-	connected  bool
 }
 
 // NewSSHConnectionManager creates a new connection manager
@@ -87,15 +86,14 @@ func (cm *SSHConnectionManager) establishConnection(host string) error {
 	cm.connections[host] = &SSHConnection{
 		host:       host,
 		socketPath: socketPath,
-		connected:  true,
 	}
 	cm.mu.Unlock()
 
 	return nil
 }
 
-// runSSHPersistentStreaming executes SSH command using persistent connection with real-time streaming output and context cancellation
-func (cm *SSHConnectionManager) runSSHPersistentStreaming(ctx context.Context, host, command string, idx, maxHostLen int, noColor bool) {
+// runSSHStreaming executes SSH command using persistent connection with real-time streaming output and context cancellation
+func (cm *SSHConnectionManager) runSSHStreaming(ctx context.Context, host, command string, idx, maxHostLen int, noColor bool) {
 	socketPath := cm.getSocketPath(host)
 
 	args := []string{
@@ -172,8 +170,8 @@ func (cm *SSHConnectionManager) runSSHPersistentStreaming(ctx context.Context, h
 	wg.Wait()
 }
 
-// cleanupConnection closes a persistent SSH connection
-func (cm *SSHConnectionManager) cleanupConnection(host string) {
+// closeConnection closes a persistent SSH connection
+func (cm *SSHConnectionManager) closeConnection(host string) {
 	if conn, exists := cm.connections[host]; exists {
 		// Close the SSH control connection
 		// Note: We need to be careful with the host parameter, but since it's controlled by our code
@@ -189,13 +187,13 @@ func (cm *SSHConnectionManager) cleanupConnection(host string) {
 	}
 }
 
-// cleanupAllConnections closes all persistent SSH connections
-func (cm *SSHConnectionManager) cleanupAllConnections() {
+// closeAllConnections closes all persistent SSH connections
+func (cm *SSHConnectionManager) closeAllConnections() {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 
 	for host := range cm.connections {
-		cm.cleanupConnection(host)
+		cm.closeConnection(host)
 	}
 
 	// Remove socket directory

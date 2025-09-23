@@ -26,8 +26,11 @@ func InteractiveMode(hosts []string, user string, noColor bool, verbose bool) {
 
 	// Create SSH connection manager for persistent connections
 	connManager := NewSSHConnectionManager(user)
-	defer connManager.cleanupAllConnections() // Ensure cleanup on exit
+	defer connManager.closeAllConnections() // Ensure cleanup on exit
 
+	if Verbose {
+		fmt.Printf("Socket directory: %s\n", connManager.socketDir)
+	}
 	// Establish connections to all hosts in parallel with progress bar
 	type connectionResult struct {
 		host  string
@@ -93,8 +96,8 @@ func InteractiveMode(hosts []string, user string, noColor bool, verbose bool) {
 		Prompt: prompt,
 		AutoComplete: &customCompleter{
 			hosts:   connectedHosts,
-			user:    user,
 			noColor: noColor,
+			connMgr: connManager,
 		},
 		HistoryFile: os.Getenv("HOME") + "/.gosh_history",
 	}
