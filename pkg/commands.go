@@ -11,14 +11,14 @@ import (
 	"sync"
 )
 
-// ExecuteCommandStreaming runs a command on all hosts using persistent SSH connections with streaming output and context cancellation
-func ExecuteCommandStreaming(ctx context.Context, cm *SSHConnectionManager, hosts []string, command string, noColor bool) {
+// executeCommandStreaming runs a command on all hosts using persistent SSH connections with streaming output and context cancellation
+func executeCommandStreaming(ctx context.Context, cm *SSHConnectionManager, hosts []string, command string, noColor bool) {
 	maxHostLen := maxLen(hosts)
 	var wg sync.WaitGroup
 
 	for i, host := range hosts {
 		wg.Go(func() {
-			cm.runSSHPersistentStreaming(ctx, host, command, i, maxHostLen, noColor)
+			cm.runSSHStreaming(ctx, host, command, i, maxHostLen, noColor)
 		})
 	}
 

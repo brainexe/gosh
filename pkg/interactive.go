@@ -11,12 +11,12 @@ import (
 	"github.com/chzyer/readline"
 )
 
-// Global verbose flag that can be toggled in interactive mode
+// Verbose Global verbose flag that can be toggled in interactive mode
 var Verbose bool
 
 // InteractiveMode starts an interactive session
 func InteractiveMode(hosts []string, user string, noColor bool, verbose bool) {
-	// Set the global verbose flag
+	// Set the global verbose flag to support changes during the session
 	Verbose = verbose
 
 	if Verbose {
@@ -26,8 +26,11 @@ func InteractiveMode(hosts []string, user string, noColor bool, verbose bool) {
 
 	// Create SSH connection manager for persistent connections
 	connManager := NewSSHConnectionManager(user)
-	defer connManager.cleanupAllConnections() // Ensure cleanup on exit
+	defer connManager.closeAllConnections() // Ensure cleanup on exit
 
+	if Verbose {
+		fmt.Printf("Socket directory: %s\n", connManager.socketDir)
+	}
 	// Establish connections to all hosts in parallel with progress bar
 	type connectionResult struct {
 		host  string
@@ -93,8 +96,8 @@ func InteractiveMode(hosts []string, user string, noColor bool, verbose bool) {
 		Prompt: prompt,
 		AutoComplete: &customCompleter{
 			hosts:   connectedHosts,
-			user:    user,
 			noColor: noColor,
+			connMgr: connManager,
 		},
 		HistoryFile: os.Getenv("HOME") + "/.gosh_history",
 	}
@@ -109,7 +112,7 @@ func InteractiveMode(hosts []string, user string, noColor bool, verbose bool) {
 	for {
 		line, err := rl.Readline()
 		if err != nil { // EOF or Ctrl+D
-			break
+			return
 		}
 
 		line = strings.TrimSpace(line)
@@ -158,7 +161,7 @@ func InteractiveMode(hosts []string, user string, noColor bool, verbose bool) {
 			}()
 
 			// Execute command with interruptible context
-			ExecuteCommandStreaming(ctx, connManager, connectedHosts, line, noColor)
+			executeCommandStreaming(ctx, connManager, connectedHosts, line, noColor)
 
 			// Clean up
 			cancel()

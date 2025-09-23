@@ -1,9 +1,7 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
-	"log"
 	"os"
 
 	"github.com/brainexe/gosh/pkg"
@@ -23,12 +21,6 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Usage: %s [flags] host1 [host2 ...]\n", os.Args[0])
 		pflag.PrintDefaults()
 		os.Exit(1)
-	}
-
-	if *verbose {
-		log.SetOutput(os.Stderr)
-	} else {
-		log.SetOutput(bufio.NewWriter(os.Stderr))
 	}
 
 	if *command != "" {

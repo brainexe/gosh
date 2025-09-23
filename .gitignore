@@ -7,6 +7,9 @@ build/
 # Environment files (contains sensitive host information)
 .env
 
+# Generated test keys (created by //go:generate)
+pkg/test_keys/
+
 # Go modules
 vendor/
 

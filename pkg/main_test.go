@@ -1,3 +1,5 @@
+//go:generate bash -c "mkdir -p test_keys && ssh-keygen -t rsa -b 1024 -f test_keys/test_server_key -N '' -q || true"
+
 package pkg
 
 import (
@@ -103,7 +105,7 @@ func startFakeSSHServer(t *testing.T, addr string, response string) net.Listener
 	t.Helper()
 
 	// Load a private key for the server
-	privateBytes, err := os.ReadFile("../test_data/test_server_key")
+	privateBytes, err := os.ReadFile("test_keys/test_server_key")
 	if err != nil {
 		t.Fatalf("Failed to load private key: %v", err)
 	}
@@ -758,8 +760,8 @@ func TestTestAllConnections(t *testing.T) {
 func TestCustomCompleterDo(t *testing.T) {
 	completer := &customCompleter{
 		hosts:   []string{"host1", "host2"},
-		user:    "testuser",
 		noColor: true,
+		connMgr: &SSHConnectionManager{},
 	}
 
 	tests := []struct {
@@ -829,7 +831,7 @@ func TestSSHConnectionManager(t *testing.T) {
 			}
 
 			// Clean up
-			cm.cleanupAllConnections()
+			cm.closeAllConnections()
 		})
 	}
 }
@@ -850,7 +852,7 @@ func TestRunCmdWithSeparateOutputExtended(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			cmd := exec.CommandContext(context.Background(), test.command, test.args...)
+			cmd := exec.CommandContext(context.Background(), test.command, test.args...) // #nosec G204 -- test inputs are predefined in table; safe for tests
 			stdout, stderr, err := runCmdWithSeparateOutput(cmd)
 
 			if test.wantErr && err == nil {
@@ -865,6 +867,24 @@ func TestRunCmdWithSeparateOutputExtended(t *testing.T) {
 				t.Errorf("Expected some output for successful command")
 			}
 		})
+	}
+}
+
+// Add suppression for dynamic command execution in tests
+// The test constructs commands from fixed test cases; inputs are controlled and not user-provided
+// #nosec G204
+func TestDynamicCommandExecution(t *testing.T) {
+	t.Helper()
+	tests := []struct {
+		name    string
+		command string
+		args    []string
+	}{
+		{"echo", "echo", []string{"test"}},
+	}
+	for _, tc := range tests {
+		cmd := exec.CommandContext(context.Background(), tc.command, tc.args...) // #nosec G204 -- test-only execution with controlled inputs
+		_ = cmd.Run()
 	}
 }
 
@@ -934,7 +954,9 @@ func TestCompleterWithWord(t *testing.T) {
 				testHosts = hosts
 			}
 
-			completions := completerWithWord(test.line, test.currentWord, testHosts, user)
+			conMgr := NewSSHConnectionManager(user)
+			conMgr.connections = map[string]*SSHConnection{}
+			completions := completerWithWord(test.line, test.currentWord, testHosts, conMgr)
 
 			// completions should be a valid slice (can be nil or empty)
 			// The function may return nil in some error cases

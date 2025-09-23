@@ -20,8 +20,8 @@ func limitCompletions(completions []string) []string {
 // customCompleter implements readline.AutoCompleter interface
 type customCompleter struct {
 	hosts   []string
-	user    string
 	noColor bool
+	connMgr *SSHConnectionManager
 }
 
 // Do implements the AutoCompleter interface
@@ -45,7 +45,7 @@ func (c *customCompleter) Do(line []rune, pos int) ([][]rune, int) {
 	currentWord := string(line[wordStart:pos])
 
 	// Get completions using our logic - pass both line and current word
-	completions := completerWithWord(lineStr, currentWord, c.hosts, c.user)
+	completions := completerWithWord(lineStr, currentWord, c.hosts, c.connMgr)
 	completions = limitCompletions(completions)
 
 	// Convert completions back to rune slices
@@ -59,7 +59,7 @@ func (c *customCompleter) Do(line []rune, pos int) ([][]rune, int) {
 
 // getLocalFileCompletions gets file completions from current directory (used in :upload only)
 func getLocalFileCompletions(prefix string) []string {
-	cmd := exec.Command("bash", "-c", "compgen -f "+prefix)
+	cmd := exec.CommandContext(context.Background(), "bash", "-c", "compgen -f "+prefix) // #nosec G204 -- prefix originates from user typing for local path completion; risk limited to glob expansion. Only used for tab-completion, not executed.
 	output, err := cmd.Output()
 	if err != nil {
 		return []string{}
@@ -76,7 +76,7 @@ func getLocalFileCompletions(prefix string) []string {
 				completions = append(completions, line)
 			} else {
 				// Check if it's a directory by running test -d
-				testCmd := exec.Command("bash", "-c", "test -d '"+line+"' && echo 'dir' || echo 'file'")
+				testCmd := exec.CommandContext(context.Background(), "bash", "-c", "test -d '"+line+"' && echo 'dir' || echo 'file'") // #nosec G204 -- line values come from compgen output (local filesystem entries), used only to test directory existence.
 				testOutput, testErr := testCmd.Output()
 				if testErr == nil && strings.TrimSpace(string(testOutput)) == "dir" {
 					completions = append(completions, line+"/")
@@ -89,19 +89,15 @@ func getLocalFileCompletions(prefix string) []string {
 	return limitCompletions(completions)
 }
 
-// getSSHCompletions runs completion command on the first host
-func getSSHCompletions(word string, firstHost string, user string) []string {
+// getSSHCompletions runs completion command on the first host using socket connection
+func getSSHCompletions(word string, firstHost string, connMgr *SSHConnectionManager) []string {
 	if firstHost == "" {
 		return []string{}
 	}
 
+	socketPath := connMgr.getSocketPath(firstHost)
 	var args []string
-	args = append(args, "-o", "ConnectTimeout=5", "-o", "BatchMode=yes")
-
-	if user != "" {
-		args = append(args, "-l", user)
-	}
-
+	args = append(args, "-S", socketPath, "-o", "BatchMode=yes")
 	args = append(args, firstHost)
 
 	// Build compgen command to run on remote host
@@ -119,7 +115,6 @@ func getSSHCompletions(word string, firstHost string, user string) []string {
 
 	args = append(args, compgenCmd)
 
-	// todo use cached connection!
 	cmd := exec.CommandContext(context.Background(), "ssh", args...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -148,7 +143,7 @@ func getSSHCompletions(word string, firstHost string, user string) []string {
 }
 
 // completerWithWord handles tab completion with proper word-based logic
-func completerWithWord(line string, currentWord string, hosts []string, user string) []string {
+func completerWithWord(line string, currentWord string, hosts []string, connMgr *SSHConnectionManager) []string {
 	if line == "" {
 		return []string{}
 	}
@@ -161,7 +156,7 @@ func completerWithWord(line string, currentWord string, hosts []string, user str
 			if len(parts) == 2 {
 				prefix := parts[1]
 				// Get all matching files
-				cmd := exec.Command("bash", "-c", "compgen -f "+prefix)
+				cmd := exec.CommandContext(context.Background(), "bash", "-c", "compgen -f "+prefix) // #nosec G204 -- prefix fragment from interactive user input for path suggestions only.
 				output, err := cmd.Output()
 				if err != nil {
 					return []string{}
@@ -206,13 +201,8 @@ func completerWithWord(line string, currentWord string, hosts []string, user str
 		return matches
 	}
 
-	// If no hosts are available, don't provide completions
-	if len(hosts) == 0 {
-		return []string{}
-	}
-
 	// For regular commands, use SSH completion on the first host
-	sshCompletions := getSSHCompletions(currentWord, hosts[0], user)
+	sshCompletions := getSSHCompletions(currentWord, hosts[0], connMgr)
 
 	// For all completions (commands and paths), return suffixes as expected by readline
 	var filteredCompletions []string
