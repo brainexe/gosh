@@ -68,7 +68,7 @@ func (cm *SSHConnectionManager) getSocketPath(host string) string {
 }
 
 // establishConnection establishes a persistent SSH connection to a host
-func (cm *SSHConnectionManager) establishConnection(host string, idx int, maxLen int, noColor bool) (error, *SSHConnection) {
+func (cm *SSHConnectionManager) establishConnection(host string, idx int, maxLen int, noColor bool) (*SSHConnection, error) {
 	socketPath := cm.getSocketPath(host)
 
 	// Establish new connection
@@ -89,7 +89,7 @@ func (cm *SSHConnectionManager) establishConnection(host string, idx int, maxLen
 
 	cmd := exec.CommandContext(context.Background(), "ssh", args...)
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("failed to establish SSH connection to %s: %w", host, err), nil
+		return nil, fmt.Errorf("failed to establish SSH connection to %s: %w", host, err)
 	}
 
 	conn := &SSHConnection{
@@ -102,7 +102,7 @@ func (cm *SSHConnectionManager) establishConnection(host string, idx int, maxLen
 	cm.connections[host] = conn
 	cm.mu.Unlock()
 
-	return nil, conn
+	return conn, nil
 }
 
 // runSSHStreaming executes SSH command using persistent connection with real-time streaming output and context cancellation

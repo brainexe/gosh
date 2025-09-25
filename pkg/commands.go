@@ -50,7 +50,7 @@ func ExecuteCommand(hosts []string, command, user string, noColor bool) {
 	var wg sync.WaitGroup
 	for i, host := range hosts {
 		wg.Go(func() {
-			err, conn := connManager.establishConnection(host, i, maxHostLen, noColor)
+			conn, err := connManager.establishConnection(host, i, maxHostLen, noColor)
 			if err != nil {
 				fmt.Printf("Failed to establish connection to %s: %v\n", host, err)
 				return

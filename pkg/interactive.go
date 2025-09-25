@@ -43,7 +43,7 @@ func InteractiveMode(hosts []string, user string, noColor bool, verbose bool) {
 	// Start connections in parallel
 	for idx, host := range hosts {
 		wg.Go(func() {
-			err, _ := connManager.establishConnection(host, idx, maxLen(hosts), noColor)
+			_, err := connManager.establishConnection(host, idx, maxLen(hosts), noColor)
 			resultChan <- connectionResult{host: host, error: err}
 		})
 	}
