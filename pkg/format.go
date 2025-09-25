@@ -47,3 +47,27 @@ func maxLen(strings []string) int {
 	}
 	return maxLength
 }
+
+// printProgressBar displays a simple text-based progress bar
+func printProgressBar(current, total int, width int) {
+	if total == 0 {
+		return
+	}
+
+	percentage := float64(current) / float64(total)
+	filled := int(float64(width) * percentage)
+
+	bar := ""
+	for i := range width {
+		if i < filled {
+			bar += "█"
+		} else {
+			bar += "░"
+		}
+	}
+
+	fmt.Printf("\r[%s] %d/%d (%.1f%%)", bar, current, total, percentage*100)
+	if current == total {
+		fmt.Println() // New line when complete
+	}
+}

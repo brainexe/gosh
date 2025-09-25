@@ -3,8 +3,10 @@ package pkg
 import (
 	"bytes"
 	"context"
+	"log"
 	"os/exec"
 	"strings"
+	"time"
 )
 
 const maxCompletions = 10
@@ -19,9 +21,9 @@ func limitCompletions(completions []string) []string {
 
 // customCompleter implements readline.AutoCompleter interface
 type customCompleter struct {
-	hosts   []string
-	noColor bool
-	connMgr *SSHConnectionManager
+	firstHost string
+	noColor   bool
+	connMgr   *SSHConnectionManager
 }
 
 // Do implements the AutoCompleter interface
@@ -45,7 +47,7 @@ func (c *customCompleter) Do(line []rune, pos int) ([][]rune, int) {
 	currentWord := string(line[wordStart:pos])
 
 	// Get completions using our logic - pass both line and current word
-	completions := completerWithWord(lineStr, currentWord, c.hosts, c.connMgr)
+	completions := completerWithWord(lineStr, currentWord, c.firstHost, c.connMgr)
 	completions = limitCompletions(completions)
 
 	// Convert completions back to rune slices
@@ -91,14 +93,17 @@ func getLocalFileCompletions(prefix string) []string {
 
 // getSSHCompletions runs completion command on the first host using socket connection
 func getSSHCompletions(word string, firstHost string, connMgr *SSHConnectionManager) []string {
-	if firstHost == "" {
-		return []string{}
-	}
-
 	socketPath := connMgr.getSocketPath(firstHost)
+
 	var args []string
-	args = append(args, "-S", socketPath, "-o", "BatchMode=yes")
-	args = append(args, firstHost)
+	args = append(args,
+		"-S", socketPath,
+		"-o", SSHBatchMode,
+	)
+
+	if connMgr.user != "" {
+		args = append([]string{"-l", connMgr.user}, args...)
+	}
 
 	// Build compgen command to run on remote host
 	var compgenCmd string
@@ -107,28 +112,35 @@ func getSSHCompletions(word string, firstHost string, connMgr *SSHConnectionMana
 		compgenCmd = "compgen -c"
 	case strings.Contains(word, "/"):
 		// Handle path completion
-		compgenCmd = "compgen -d '" + word + "' || compgen -f '" + word + "'"
+		compgenCmd = "(compgen -d '" + word + "' || compgen -f '" + word + "')"
 	default:
 		// Try command completion first, then file completion
-		compgenCmd = "compgen -c '" + word + "' || compgen -f '" + word + "'"
+		compgenCmd = "(compgen -c '" + word + "' || compgen -f '" + word + "')"
 	}
 
-	args = append(args, compgenCmd)
+	args = append(args, firstHost, compgenCmd)
 
-	cmd := exec.CommandContext(context.Background(), "ssh", args...)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*2)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "ssh", args...)
+	if Verbose {
+		log.Printf("SSH completion command: %s\n", cmd.String())
+	}
+
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
 	err := cmd.Run()
 	if err != nil {
+		if Verbose {
+			log.Printf("SSH completion command: %s\nErr: %s, %s\n", cmd.String(), stderr.String(), err)
+		}
 		return []string{}
 	}
 
 	output := strings.TrimSpace(stdout.String())
-	if output == "" {
-		return []string{}
-	}
 
 	lines := strings.Split(output, "\n")
 	var completions []string
@@ -143,7 +155,7 @@ func getSSHCompletions(word string, firstHost string, connMgr *SSHConnectionMana
 }
 
 // completerWithWord handles tab completion with proper word-based logic
-func completerWithWord(line string, currentWord string, hosts []string, connMgr *SSHConnectionManager) []string {
+func completerWithWord(line string, currentWord string, firstHost string, connMgr *SSHConnectionManager) []string {
 	if line == "" {
 		return []string{}
 	}
@@ -202,7 +214,7 @@ func completerWithWord(line string, currentWord string, hosts []string, connMgr 
 	}
 
 	// For regular commands, use SSH completion on the first host
-	sshCompletions := getSSHCompletions(currentWord, hosts[0], connMgr)
+	sshCompletions := getSSHCompletions(currentWord, firstHost, connMgr)
 
 	// For all completions (commands and paths), return suffixes as expected by readline
 	var filteredCompletions []string

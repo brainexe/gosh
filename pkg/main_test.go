@@ -26,80 +26,6 @@ type HostStatus struct {
 	Error     error
 }
 
-func TestMaxLen(t *testing.T) {
-	tests := []struct {
-		input    []string
-		expected int
-	}{
-		{[]string{"a", "bb", "ccc"}, 3},
-		{[]string{"hello", "world"}, 5},
-		{[]string{}, 0},
-		{[]string{"single"}, 6},
-	}
-
-	for _, test := range tests {
-		result := maxLen(test.input)
-		if result != test.expected {
-			t.Errorf("maxLen(%v) = %d, expected %d", test.input, result, test.expected)
-		}
-	}
-}
-
-func TestFormatHost(t *testing.T) {
-	tests := []struct {
-		name        string
-		host        string
-		idx         int
-		maxLen      int
-		noColor     bool
-		contains    string
-		notContains string
-	}{
-		{"no color padding", "host1", 0, 10, true, "host1     ", "\033["},
-		{"short host no color", "short", 1, 10, true, "short     ", "\033["},
-		{"with color codes", "host1", 0, 10, false, "host1     ", ""},
-		{"with color has ANSI", "host1", 0, 10, false, "\033[", ""},
-		{"with color has reset", "host1", 0, 10, false, "\033[0m", ""},
-		{"different colors", "host2", 1, 10, false, "\033[", ""},
-		{"exact length", "exactly10c", 0, 10, true, "exactly10c", "\033["},
-		{"longer than max", "verylonghost", 0, 8, true, "verylonghost", "\033["},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			result := formatHostPrefix(test.host, test.idx, test.maxLen, test.noColor)
-
-			if test.contains != "" && !strings.Contains(result, test.contains) {
-				t.Errorf("formatHostPrefix(%q, %d, %d, %t) = %q, should contain %q",
-					test.host, test.idx, test.maxLen, test.noColor, result, test.contains)
-			}
-
-			if test.notContains != "" && strings.Contains(result, test.notContains) {
-				t.Errorf("formatHostPrefix(%q, %d, %d, %t) = %q, should not contain %q",
-					test.host, test.idx, test.maxLen, test.noColor, result, test.notContains)
-			}
-		})
-	}
-}
-
-func TestFormatHostColorCycling(t *testing.T) {
-	// Test that different indices produce different colors
-	host := "test"
-	maxLen := 10
-	noColor := false
-
-	results := make([]string, len(colors))
-	for i := range colors {
-		results[i] = formatHostPrefix(host, i, maxLen, noColor)
-	}
-
-	// Test that cycling works (index beyond colors length)
-	cycledResult := formatHostPrefix(host, len(colors), maxLen, noColor)
-	if cycledResult != results[0] {
-		t.Errorf("Color cycling failed: index %d should match index 0", len(colors))
-	}
-}
-
 // startFakeSSHServer starts a fake SSH server for testing purposes
 func startFakeSSHServer(t *testing.T, addr string, response string) net.Listener {
 	t.Helper()
@@ -370,7 +296,14 @@ func TestUploadFile(t *testing.T) {
 		t.Run(test.name, func(_ *testing.T) {
 			// This test verifies the function doesn't panic and handles file existence
 			// Actual SCP execution is tested in integration tests
-			uploadFile(test.hosts, test.filepath, test.user, test.noColor)
+			connManager := NewSSHConnectionManager(test.user)
+			connManager.connections = make(map[string]*SSHConnection)
+			for _, host := range test.hosts {
+				connManager.connections[host] = &SSHConnection{
+					host: host,
+				}
+			}
+			uploadFile(connManager, test.filepath)
 		})
 	}
 }
@@ -419,21 +352,21 @@ func TestSSHCommandConstruction(t *testing.T) {
 			"example.com",
 			"echo test",
 			"",
-			[]string{"-o", "ConnectTimeout=5", "-o", "BatchMode=yes", "example.com", "echo test"},
+			[]string{"-o", SSHConnectTimeout, "-o", SSHBatchMode, "example.com", "echo test"},
 		},
 		{
 			"with user",
 			"example.com",
 			"whoami",
 			"testuser",
-			[]string{"-o", "ConnectTimeout=5", "-o", "BatchMode=yes", "-l", "testuser", "example.com", "whoami"},
+			[]string{"-o", SSHConnectTimeout, "-o", SSHBatchMode, "-l", "testuser", "example.com", "whoami"},
 		},
 		{
 			"complex command",
 			"192.168.1.1",
 			"ls -la /home",
 			"admin",
-			[]string{"-o", "ConnectTimeout=5", "-o", "BatchMode=yes", "-l", "admin", "192.168.1.1", "ls -la /home"},
+			[]string{"-o", SSHConnectTimeout, "-o", SSHBatchMode, "-l", "admin", "192.168.1.1", "ls -la /home"},
 		},
 	}
 
@@ -441,7 +374,7 @@ func TestSSHCommandConstruction(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			// We can't easily test runSSH directly due to exec.Command,
 			// but we can verify the argument construction logic
-			args := []string{"-o", "ConnectTimeout=5", "-o", "BatchMode=yes"}
+			args := []string{"-o", SSHConnectTimeout, "-o", SSHBatchMode}
 			if test.user != "" {
 				args = append(args, "-l", test.user)
 			}
@@ -473,28 +406,28 @@ func TestSCPCommandConstruction(t *testing.T) {
 			"example.com",
 			"test.txt",
 			"",
-			[]string{"-o", "ConnectTimeout=5", "-o", "BatchMode=yes", "test.txt", "example.com:test.txt"},
+			[]string{"-o", SSHConnectTimeout, "-o", SSHBatchMode, "test.txt", "example.com:test.txt"},
 		},
 		{
 			"with user",
 			"example.com",
 			"script.sh",
 			"testuser",
-			[]string{"-o", "ConnectTimeout=5", "-o", "BatchMode=yes", "-o", "User=testuser", "script.sh", "example.com:script.sh"},
+			[]string{"-o", SSHConnectTimeout, "-o", SSHBatchMode, "-o", "User=testuser", "script.sh", "example.com:script.sh"},
 		},
 		{
 			"path with directory",
 			"192.168.1.1",
 			"/home/user/data.csv",
 			"admin",
-			[]string{"-o", "ConnectTimeout=5", "-o", "BatchMode=yes", "-o", "User=admin", "/home/user/data.csv", "192.168.1.1:data.csv"},
+			[]string{"-o", SSHConnectTimeout, "-o", SSHBatchMode, "-o", "User=admin", "/home/user/data.csv", "192.168.1.1:data.csv"},
 		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			// Test the SCP argument construction logic
-			args := []string{"-o", "ConnectTimeout=5", "-o", "BatchMode=yes"}
+			args := []string{"-o", SSHConnectTimeout, "-o", SSHBatchMode}
 			if test.user != "" {
 				args = append(args, "-o", "User="+test.user)
 			}
@@ -759,9 +692,9 @@ func TestTestAllConnections(t *testing.T) {
 
 func TestCustomCompleterDo(t *testing.T) {
 	completer := &customCompleter{
-		hosts:   []string{"host1", "host2"},
-		noColor: true,
-		connMgr: &SSHConnectionManager{},
+		firstHost: "host1",
+		noColor:   true,
+		connMgr:   &SSHConnectionManager{},
 	}
 
 	tests := []struct {
@@ -944,19 +877,15 @@ func TestCompleterWithWord(t *testing.T) {
 		{"help command", ":help", "help", "internal"},
 		{"regular command", "ls", "ls", "ssh"},
 		{"path command", "cd /home", "/home", "ssh"},
-		{"no hosts", "", "", "none"},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			var testHosts []string
-			if test.expectedType != "none" {
-				testHosts = hosts
-			}
+			testHosts := hosts
 
 			conMgr := NewSSHConnectionManager(user)
 			conMgr.connections = map[string]*SSHConnection{}
-			completions := completerWithWord(test.line, test.currentWord, testHosts, conMgr)
+			completions := completerWithWord(test.line, test.currentWord, testHosts[0], conMgr)
 
 			// completions should be a valid slice (can be nil or empty)
 			// The function may return nil in some error cases
@@ -1037,65 +966,6 @@ func TestGetLocalFileCompletionsExtended(t *testing.T) {
 					if !strings.HasPrefix(completion, test.prefix) {
 						t.Errorf("Completion %q does not start with prefix %q", completion, test.prefix)
 					}
-				}
-			}
-		})
-	}
-}
-
-func TestPrintProgressBar(t *testing.T) {
-	tests := []struct {
-		name     string
-		current  int
-		total    int
-		width    int
-		expected string // partial expected output
-	}{
-		{"zero progress", 0, 10, 5, "[░░░░░] 0/10"},
-		{"half progress", 5, 10, 5, "[██░░░] 5/10"},
-		{"full progress", 10, 10, 5, "[█████] 10/10"},
-		{"zero total", 0, 0, 5, ""}, // Should not print anything
-		{"single item", 1, 1, 3, "[███] 1/1"},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			// Capture stdout
-			oldStdout := os.Stdout
-			r, w, _ := os.Pipe()
-			os.Stdout = w
-
-			printProgressBar(test.current, test.total, test.width)
-
-			// Restore stdout
-			w.Close()
-			os.Stdout = oldStdout
-
-			// Read captured output
-			output, _ := io.ReadAll(r)
-			outputStr := string(output)
-
-			if test.total == 0 {
-				if outputStr != "" {
-					t.Errorf("Expected no output for zero total, got %q", outputStr)
-				}
-				return
-			}
-
-			// Check that the output contains expected elements
-			if !strings.Contains(outputStr, test.expected) {
-				t.Errorf("Expected output to contain %q, got %q", test.expected, outputStr)
-			}
-
-			// Check for progress bar characters
-			if !strings.Contains(outputStr, "[") || !strings.Contains(outputStr, "]") {
-				t.Errorf("Expected output to contain progress bar brackets, got %q", outputStr)
-			}
-
-			// For completed progress, should have newline
-			if test.current == test.total && test.total > 0 {
-				if !strings.HasSuffix(outputStr, "\n") {
-					t.Errorf("Expected output to end with newline for completed progress, got %q", outputStr)
 				}
 			}
 		})

@@ -9,7 +9,7 @@ all: test lint build
 build:
 	@echo "Building $(BINARY_NAME)..."
 	@mkdir -p $(BUILD_DIR)
-	@CGO_ENABLED=0 go build -mod=mod -trimpath -ldflags="-s -w -extldflags '-static'" -o $(BUILD_DIR)/$(BINARY_NAME) ./cmd
+	@CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o $(BUILD_DIR)/$(BINARY_NAME) ./cmd
 
 test:
 	@echo "Running tests..."
