@@ -41,9 +41,9 @@ func InteractiveMode(hosts []string, user string, noColor bool, verbose bool) {
 	var wg sync.WaitGroup
 
 	// Start connections in parallel
-	for _, host := range hosts {
+	for idx, host := range hosts {
 		wg.Go(func() {
-			err := connManager.establishConnection(host)
+			err, _ := connManager.establishConnection(host, idx, maxLen(hosts), noColor)
 			resultChan <- connectionResult{host: host, error: err}
 		})
 	}
@@ -94,10 +94,11 @@ func InteractiveMode(hosts []string, user string, noColor bool, verbose bool) {
 	prompt := fmt.Sprintf("🖥️ [%d]> ", len(connectedHosts))
 	config := &readline.Config{
 		Prompt: prompt,
+		// todo tweak
 		AutoComplete: &customCompleter{
-			hosts:   connectedHosts,
-			noColor: noColor,
-			connMgr: connManager,
+			firstHost: connectedHosts[0],
+			noColor:   noColor,
+			connMgr:   connManager,
 		},
 		HistoryFile: os.Getenv("HOME") + "/.gosh_history",
 	}
@@ -136,7 +137,7 @@ func InteractiveMode(hosts []string, user string, noColor bool, verbose bool) {
 				fmt.Println("📁 Usage: :upload <filepath>")
 				continue
 			}
-			uploadFile(connectedHosts, filepath, user, noColor)
+			uploadFile(connManager, filepath)
 		case line == ":verbose":
 			Verbose = !Verbose
 			status := "disabled"
@@ -161,7 +162,7 @@ func InteractiveMode(hosts []string, user string, noColor bool, verbose bool) {
 			}()
 
 			// Execute command with interruptible context
-			executeCommandStreaming(ctx, connManager, connectedHosts, line, noColor)
+			executeCommandStreaming(ctx, connManager, line)
 
 			// Clean up
 			cancel()
@@ -185,28 +186,4 @@ func showHelp() {
 	fmt.Println("  uptime          - Show uptime on all connected hosts")
 	fmt.Println("  ls -la          - List files on all connected hosts")
 	fmt.Println("  :upload script.sh - Upload script.sh to all connected hosts")
-}
-
-// printProgressBar displays a simple text-based progress bar
-func printProgressBar(current, total int, width int) {
-	if total == 0 {
-		return
-	}
-
-	percentage := float64(current) / float64(total)
-	filled := int(float64(width) * percentage)
-
-	bar := ""
-	for i := range width {
-		if i < filled {
-			bar += "█"
-		} else {
-			bar += "░"
-		}
-	}
-
-	fmt.Printf("\r[%s] %d/%d (%.1f%%)", bar, current, total, percentage*100)
-	if current == total {
-		fmt.Println() // New line when complete
-	}
 }

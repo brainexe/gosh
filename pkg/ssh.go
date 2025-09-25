@@ -5,11 +5,21 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
+)
+
+const (
+	// SSHConnectTimeout is the SSH connection timeout in seconds
+	SSHConnectTimeout = "ConnectTimeout=5"
+	// SSHControlPersist is how long SSH control connections should persist
+	SSHControlPersist = "ControlPersist=10m"
+	// SSHBatchMode enables non-interactive operation
+	SSHBatchMode = "BatchMode=yes"
 )
 
 // runCmdWithSeparateOutput runs a command and returns stdout, stderr, and error separately
@@ -34,6 +44,7 @@ type SSHConnectionManager struct {
 type SSHConnection struct {
 	host       string
 	socketPath string
+	prefix     string
 }
 
 // NewSSHConnectionManager creates a new connection manager
@@ -57,16 +68,16 @@ func (cm *SSHConnectionManager) getSocketPath(host string) string {
 }
 
 // establishConnection establishes a persistent SSH connection to a host
-func (cm *SSHConnectionManager) establishConnection(host string) error {
+func (cm *SSHConnectionManager) establishConnection(host string, idx int, maxLen int, noColor bool) (error, *SSHConnection) {
 	socketPath := cm.getSocketPath(host)
 
 	// Establish new connection
 	args := []string{
 		"-M",             // Enable ControlMaster
 		"-S", socketPath, // Control socket path
-		"-o", "ControlPersist=10m", // Keep connection alive for 10 minutes
-		"-o", "ConnectTimeout=5",
-		"-o", "BatchMode=yes",
+		"-o", SSHControlPersist, // Keep connection alive for 10 minutes
+		"-o", SSHConnectTimeout,
+		"-o", SSHBatchMode,
 		"-f", // Go to background after establishing connection
 	}
 
@@ -78,85 +89,75 @@ func (cm *SSHConnectionManager) establishConnection(host string) error {
 
 	cmd := exec.CommandContext(context.Background(), "ssh", args...)
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("failed to establish SSH connection to %s: %w", host, err)
+		return fmt.Errorf("failed to establish SSH connection to %s: %w", host, err), nil
 	}
 
-	// Store connection info
-	cm.mu.Lock()
-	cm.connections[host] = &SSHConnection{
+	conn := &SSHConnection{
 		host:       host,
 		socketPath: socketPath,
+		prefix:     formatHostPrefix(host, idx, maxLen, noColor),
 	}
+	// Store connection info, only for successful hosts
+	cm.mu.Lock()
+	cm.connections[host] = conn
 	cm.mu.Unlock()
 
-	return nil
+	return nil, conn
 }
 
 // runSSHStreaming executes SSH command using persistent connection with real-time streaming output and context cancellation
-func (cm *SSHConnectionManager) runSSHStreaming(ctx context.Context, host, command string, idx, maxHostLen int, noColor bool) {
-	socketPath := cm.getSocketPath(host)
-
+func (cm *SSHConnectionManager) runSSHStreaming(ctx context.Context, conn *SSHConnection, command string) {
 	args := []string{
-		"-S", socketPath, // Use existing control socket
-		"-o", "BatchMode=yes",
+		"-S", conn.socketPath, // Use existing control socket
+		"-o", SSHBatchMode,
 	}
 
 	if cm.user != "" {
 		args = append(args, "-l", cm.user)
 	}
 
-	args = append(args, host, command)
+	args = append(args, conn.host, command)
 	cmd := exec.CommandContext(ctx, "ssh", args...)
 
 	// Get stdout and stderr pipes
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		prefix := formatHostPrefix(host, idx, maxHostLen, noColor)
-		fmt.Printf("%s: ERROR: Failed to get stdout pipe: %v\n", prefix, err)
+		fmt.Printf("%s: ERROR: Failed to get stdout pipe: %v\n", conn.prefix, err)
 		return
 	}
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
-		prefix := formatHostPrefix(host, idx, maxHostLen, noColor)
-		fmt.Printf("%s: ERROR: Failed to get stderr pipe: %v\n", prefix, err)
+		fmt.Printf("%s: ERROR: Failed to get stderr pipe: %v\n", conn.prefix, err)
 		return
 	}
 
-	prefix := formatHostPrefix(host, idx, maxHostLen, noColor)
+	// Helper function to handle output streams
+	handleStream := func(reader io.Reader, output *os.File) func() {
+		return func() {
+			scanner := bufio.NewScanner(reader)
+			for scanner.Scan() {
+				select {
+				case <-ctx.Done():
+					return
+				default:
+					line := scanner.Text()
+					_, _ = fmt.Fprintf(output, "%s: %s\n", conn.prefix, line)
+				}
+			}
+			if err := scanner.Err(); err != nil && ctx.Err() == nil {
+				_, _ = fmt.Fprintf(os.Stderr, "%s: ERROR: Failed to read: %v\n", conn.prefix, err)
+			}
+		}
+	}
 
 	// Start goroutines to read and display output in real-time
 	var wg sync.WaitGroup
-	// Handle stdout
-	wg.Go(func() {
-		scanner := bufio.NewScanner(stdout)
-		for scanner.Scan() {
-			select {
-			case <-ctx.Done():
-				return
-			default:
-				line := scanner.Text()
-				fmt.Printf("%s: %s\n", prefix, line)
-			}
-		}
-	})
-
-	// Handle stderr
-	wg.Go(func() {
-		scanner := bufio.NewScanner(stderr)
-		for scanner.Scan() {
-			select {
-			case <-ctx.Done():
-				return
-			default:
-				line := scanner.Text()
-				fmt.Printf("%s: %s\n", prefix, line)
-			}
-		}
-	})
+	wg.Go(handleStream(stdout, os.Stdout))
+	wg.Go(handleStream(stderr, os.Stderr))
 
 	// Start the command
 	if err := cmd.Start(); err != nil {
-		fmt.Printf("%s: ERROR: Failed to start command: %v\n", prefix, err)
+		fmt.Printf("%s: ERROR: Failed to start command: %v\n", conn.prefix, err)
 		return
 	}
 
@@ -164,7 +165,7 @@ func (cm *SSHConnectionManager) runSSHStreaming(ctx context.Context, host, comma
 	if err := cmd.Wait(); err != nil {
 		// Only show error if context wasn't cancelled
 		if ctx.Err() == nil {
-			fmt.Printf("%s: ERROR: Command failed: %v\n", prefix, err)
+			fmt.Printf("%s: ERROR: Command failed: %v\n", conn.prefix, err)
 		}
 	}
 	wg.Wait()
@@ -195,7 +196,4 @@ func (cm *SSHConnectionManager) closeAllConnections() {
 	for host := range cm.connections {
 		cm.closeConnection(host)
 	}
-
-	// Remove socket directory
-	_ = os.RemoveAll(cm.socketDir)
 }
