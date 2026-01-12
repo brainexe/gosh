@@ -88,8 +88,17 @@ func (cm *SSHConnectionManager) establishConnection(host string, idx int, maxLen
 	args = append(args, host, "true") // Simple command to establish connection
 
 	cmd := exec.CommandContext(context.Background(), "ssh", args...)
-	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("failed to establish SSH connection to %s: %w", host, err)
+	stdout, stderr, err := runCmdWithSeparateOutput(cmd)
+	if err != nil {
+		// Extract meaningful error message from stderr if available
+		errorMsg := err.Error()
+		if stderr != "" {
+			// Use the actual SSH error message from stderr
+			errorMsg = strings.TrimSpace(stderr)
+		}
+		// Suppress unused variable warning for stdout
+		_ = stdout
+		return nil, fmt.Errorf("failed to establish SSH connection to %s: %s", host, errorMsg)
 	}
 
 	conn := &SSHConnection{

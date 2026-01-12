@@ -52,7 +52,7 @@ func ExecuteCommand(hosts []string, command, user string, noColor bool) {
 		wg.Go(func() {
 			conn, err := connManager.establishConnection(host, i, maxHostLen, noColor)
 			if err != nil {
-				fmt.Printf("Failed to establish connection to %s: %v\n", host, err)
+				fmt.Printf("❌ Failed to establish connection to %s: %v\n", host, err)
 				return
 			}
 
